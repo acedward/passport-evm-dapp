@@ -14,8 +14,10 @@ import {
   BridgeDepositPayloadSchema,
   BridgeResumePayloadSchema,
   BridgeWithdrawPayloadSchema,
+  OpenSwapPayloadSchema,
   RELAY_ACTIONS,
   RegisterPayloadSchema,
+  TakePayloadSchema,
   WithdrawPayloadSchema,
   type JobLane,
   type RelayActionName,
@@ -24,6 +26,7 @@ import {
 import type { AuthKind } from '../auth/verifiers.js';
 import type { BridgeService } from '../bridge/service.js';
 import { PublicError, type JobExecutor } from '../queue/jobs.js';
+import { openSwapExecutor, takeExecutor, type TradeDeps } from '../trade/executors.js';
 
 export interface ActionDefinition {
   action: RelayActionName;
@@ -128,5 +131,20 @@ export function withBridge(
     executor: bridge.withdrawExecutor,
   });
   set('bridge-resume', { payload: BridgeResumePayloadSchema, executor: bridge.resumeExecutor });
+  return map;
+}
+
+/**
+ * The catalogue with plan lane L-TRD's executors added: making an offer (`open-swap`) and taking
+ * one (`take`), each authorised by the call's OWN OpenSwapShielded signature (one prompt).
+ */
+export function withTrade(
+  map: Map<RelayActionName, ActionDefinition>,
+  deps: TradeDeps,
+): Map<RelayActionName, ActionDefinition> {
+  const set = (action: RelayActionName, patch: Partial<ActionDefinition>) =>
+    map.set(action, { ...map.get(action)!, ...patch });
+  set('open-swap', { auth: 'passport-call', payload: OpenSwapPayloadSchema, executor: openSwapExecutor(deps) });
+  set('take', { auth: 'passport-call', payload: TakePayloadSchema, executor: takeExecutor(deps) });
   return map;
 }

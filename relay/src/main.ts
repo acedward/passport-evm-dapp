@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 
 import { bridgeConfigured } from '@mnbank/core';
 
-import { accountCatalogue, withBridge } from './actions/catalogue.js';
+import { accountCatalogue, withBridge, withTrade } from './actions/catalogue.js';
 import { createApp } from './app.js';
 import { NonceStore } from './auth/nonces.js';
 import { passportCallAuthoriser } from './auth/passport-call.js';
@@ -61,6 +61,7 @@ async function main(): Promise<void> {
     'Erc20Vault/completeWithdraw',
     'Erc20Vault/refundWithdraw',
     'SignetSigner/signBidirectional',
+    'account/open_swap_shielded_with_evm',
   ];
   const keys = () => checkKeyVolume(config.managedPath, config.keysFingerprint, requiredProverKeys);
   const keyCheck = keys();
@@ -185,16 +186,27 @@ async function main(): Promise<void> {
     log,
     nonces,
     queue,
-    catalogue: withBridge(
-      accountCatalogue({
+    catalogue: withTrade(
+      withBridge(
+        accountCatalogue({
+          runtime: () => runtime,
+          sponsor,
+          vaultAddress: config.network.bridge.vaultAddress,
+          chainId: config.network.evm.chainId,
+          replay,
+          log: log.child({ component: 'accounts' }),
+        }),
+        bridge,
+      ),
+      {
         runtime: () => runtime,
         sponsor,
-        vaultAddress: config.network.bridge.vaultAddress,
-        chainId: config.network.evm.chainId,
+        kernelUrl: config.network.zswap.kernelUrl,
+        batcherUrl: config.network.zswap.batcherUrl,
+        batcherTarget: config.network.zswap.batcherTarget,
         replay,
-        log: log.child({ component: 'accounts' }),
-      }),
-      bridge,
+        log: log.child({ component: 'trade' }),
+      },
     ),
     sponsor,
     health,

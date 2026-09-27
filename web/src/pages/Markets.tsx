@@ -1,7 +1,8 @@
 // The Markets section (spec US3, FR-007/FR-008): each stock against USDC, priced only from the
-// live offers on the exchange, and a per-stock order book. Taking an offer arrives with the
-// Trade lane (L-TRD); its buttons are placeholders here. Styled with the MN Bank design system
-// (plan P1.5); every word on the page comes from ../market/view.ts.
+// live offers on the exchange, and a per-stock order book. Each book line's Take opens the Trade
+// section on that offer (plan L-TRD), which shows the exact legs and whether one coin can pay.
+// Styled with the MN Bank design system (plan P1.5); every word on the page comes from
+// ../market/view.ts.
 
 import { useState } from 'react';
 
@@ -11,6 +12,7 @@ import {
   AssetCell,
   Badge,
   Button,
+  ButtonLink,
   Cell,
   NoValue,
   Notice,
@@ -88,7 +90,8 @@ function BookSide({ market, side }: { market: Market; side: 'asks' | 'bids' }) {
   const stock = market.stock.midnightName;
   const usdc = market.usdc.midnightName;
   const lines = bookLines(market, side);
-  const takeHint = 'Taking offers arrives with the Trade section';
+  const takeHref = (offerId: string) =>
+    `#trade?${new URLSearchParams({ stock: market.stock.midnightName, offer: offerId }).toString()}`;
   const headId = `book-${side}-title`;
   return (
     <div>
@@ -129,9 +132,9 @@ function BookSide({ market, side }: { market: Market; side: 'asks' | 'bids' }) {
                 {l.total}
               </td>
               <td className="act">
-                <Button variant="secondary" size="small" disabled title={takeHint} data-testid="take">
+                <ButtonLink size="small" href={takeHref(l.offerId)} data-testid="take">
                   Take
-                </Button>
+                </ButtonLink>
               </td>
             </tr>
           ))

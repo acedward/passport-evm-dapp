@@ -1,8 +1,7 @@
 // The application shell: the MN Bank masthead (brand, the connected wallet with its Sepolia
 // badge, the Passport account with its "Midnight stagenet" badge), the tab bar, the five
 // sections and the testnet footer, in the owner-approved design (plan P1.5, Q16 A). The pieces
-// come from ./design; this file only wires them to the wallet and the store. Trade arrives with
-// its lane (L-TRD).
+// come from ./design; this file only wires them to the wallet and the store.
 
 import { useEffect, useMemo, useState } from 'react';
 
@@ -26,6 +25,7 @@ import { MarketProvider } from './market/MarketContext.js';
 import { Accounts } from './pages/Accounts.js';
 import { LocalData } from './pages/LocalData.js';
 import { Markets } from './pages/Markets.js';
+import { Trade } from './pages/Trade.js';
 import { Transfers } from './pages/Transfers.js';
 import { findAccount } from './passport/records.js';
 import { StoreProvider, useStore } from './store/StoreContext.js';
@@ -41,7 +41,8 @@ export const SECTIONS = [
 type SectionId = (typeof SECTIONS)[number]['id'];
 
 const sectionFromHash = (): SectionId => {
-  const h = window.location.hash.replace(/^#/, '');
+  // A section may carry parameters after '?' (#trade?stock=wStkA&offer=…, from the Markets page).
+  const h = window.location.hash.replace(/^#/, '').split('?')[0] ?? '';
   return (SECTIONS.find((s) => s.id === h)?.id ?? 'accounts') as SectionId;
 };
 
@@ -214,6 +215,8 @@ function Shell({ network, config }: { network: NetworkProfile; config: SiteConfi
           <Markets />
         ) : section === 'transfers' ? (
           <Transfers network={network} />
+        ) : section === 'trade' ? (
+          <Trade network={network} relayUrl={config.relayUrl} />
         ) : (
           <section data-testid={`section-${section}`}>
             <PageHead title={pending} />

@@ -59,6 +59,7 @@ import {
 import { useTokenRegistry } from '../market/MarketContext.js';
 import { readCoins } from '../passport/records.js';
 import { useStore } from '../store/StoreContext.js';
+import { confirmCancelsOffer, markLiveOffersCancelled } from '../trade/operations.js';
 import { useWallet } from '../wallet/WalletContext.js';
 
 const short = (s: string, head = 8, tail = 6) =>
@@ -321,7 +322,10 @@ function DepositPanel({ network, tokens }: { network: NetworkProfile; tokens: To
                     void run('start', async () => {
                       const e = env();
                       if (!e) return;
+                      // L-TRD.3 (Q9): the start is a signed call; it cancels a live offer.
+                      if (!confirmCancelsOffer(e, draft.account, 'bridge-deposit')) return;
                       const rec = await startDeposit(e, draft);
+                      markLiveOffersCancelled(e, draft.account);
                       followActively(rec.id);
                       setMsg({
                         kind: 'ok',
@@ -424,6 +428,8 @@ function WithdrawPanel({ network, tokens }: { network: NetworkProfile; tokens: T
       });
       return;
     }
+    // L-TRD.3 (Q9): the start is a signed call; it cancels a live offer.
+    if (!confirmCancelsOffer(e, account.address, 'bridge-withdraw')) return;
     setBusy(true);
     try {
       const rec = await startWithdraw(e, account.address, {
@@ -431,6 +437,7 @@ function WithdrawPanel({ network, tokens }: { network: NetworkProfile; tokens: T
         amount: raw,
         dest: dest.trim() || wallet.address!,
       });
+      markLiveOffersCancelled(e, account.address);
       followActively(rec.id);
       setMsg({
         kind: 'ok',
@@ -655,7 +662,7 @@ function TransferCard({ t, network }: { t: TransferRecord; network: NetworkProfi
               onClick={() =>
                 void act(async () => {
                   const e = env();
-                  if (e)
+                  if (e && confirmCancelsOffer(e, t.account, 'append-inbox'))
                     await secureTransferChange(e, {
                       ...t,
                       change: { ...t.change!, deferredReason: undefined },

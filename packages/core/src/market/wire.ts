@@ -106,6 +106,24 @@ export const OfferDetailSchema = z.object({
 });
 export type OfferDetail = z.output<typeof OfferDetailSchema>;
 
+/** `GET /v1/offers/:offerId/status`. */
+export const OfferStatusSchema = z.object({ offerId: z.string(), status: z.string() });
+
+/** The kernel's offer lifecycle words, plus `unknown` for anything else it may answer. */
+export const KERNEL_OFFER_STATUSES = ['live', 'consumed', 'expired', 'cancelled', 'not_found', 'unknown'] as const;
+export type KernelOfferStatus = (typeof KERNEL_OFFER_STATUSES)[number];
+
+/** What `POST /v1/offers` answered. `accepted` covers a 409 DUPLICATE_OFFER (it is already there). */
+export interface PostOfferAnswer {
+  accepted: boolean;
+  duplicate: boolean;
+  status: number;
+  offerId: string | null;
+  /** The kernel's reject code (for example `ROOT_UNKNOWN`, `PROOF_INVALID`, `NO_SPENDABLE_INPUT`). */
+  code: string | null;
+  reason: string | null;
+}
+
 /** A row of `GET /v1/pairs`. The pair is oriented by colour hex: LEAST is the base, GREATEST
  *  the quote, and `last_price` is the newest fill's raw base-unit ratio quote ÷ base. */
 export const PairSchema = z.object({

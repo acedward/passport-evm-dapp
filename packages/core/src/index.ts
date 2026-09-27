@@ -13,3 +13,4 @@ export * from './market/index.js';
 export * from './network.js';
 export * from './shielded-address.js';
 export * from './tokens/registry.js';
+export * from './trade.js';

@@ -126,9 +126,15 @@ test('the Markets page equals a manual computation over /v1/offers', async ({ pa
     ['0.90', '5.00', '4.50'],
   ]);
   await expect(book.getByTestId('book-summary')).toContainText('Spread 0.10');
+  // Each Take opens the Trade section on that offer (plan L-TRD).
   const takes = book.getByTestId('take');
   await expect(takes).toHaveCount(4);
-  for (const b of await takes.all()) await expect(b).toBeDisabled();
+  const lineIds = await book
+    .getByTestId('book-line')
+    .evaluateAll((trs) => trs.map((tr) => tr.getAttribute('data-offer') ?? ''));
+  for (const [i, t] of (await takes.all()).entries()) {
+    await expect(t).toHaveAttribute('href', `#trade?stock=wStkA&offer=${lineIds[i]}`);
+  }
 
   // Only GETs of the book, pairs, stats and the stream; never /v1/prices or /v1/quote; nothing
   // else leaves the browser.

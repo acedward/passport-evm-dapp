@@ -3,6 +3,7 @@
 
 export * from './feed.js';
 export * from './kernel-client.js';
+export * from './offer-file.js';
 export * from './prices.js';
 export * from './sse.js';
 export * from './wire.js';
