@@ -78,6 +78,11 @@ export class DigestReplayGuard {
     private readonly ttlSeconds: number,
     private readonly now: () => number = () => Math.floor(Date.now() / 1000),
   ) {}
+  /** Forget a digest whose call did not land (a failed job), so the customer can retry. */
+  release(digestHex: string): void {
+    this.seen.delete(digestHex);
+  }
+
   /** True if the digest was new (and is now remembered). */
   claim(digestHex: string): boolean {
     const now = this.now();

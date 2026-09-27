@@ -9,7 +9,14 @@
 
 import { z } from 'zod';
 
-import { RELAY_ACTIONS, type JobLane, type RelayActionName } from '@mnbank/core';
+import {
+  AppendInboxPayloadSchema,
+  RELAY_ACTIONS,
+  RegisterPayloadSchema,
+  WithdrawPayloadSchema,
+  type JobLane,
+  type RelayActionName,
+} from '@mnbank/core';
 
 import type { AuthKind } from '../auth/verifiers.js';
 import { PublicError, type JobExecutor } from '../queue/jobs.js';
@@ -28,16 +35,12 @@ export interface ActionDefinition {
   implementedBy: string;
 }
 
-const hex32 = z.string().regex(/^(0x)?[0-9a-fA-F]{64}$/);
+import { appendInboxExecutor, registerExecutor, withdrawExecutor, type AccountActionDeps } from './account-actions.js';
+
 /** Until a lane defines its action's body, any JSON object (the size limit still applies). */
 const anyObject = z.record(z.string(), z.unknown());
 
-export const RegisterPayloadSchema = z
-  .object({
-    /** The account's encryption PUBLIC key (X25519, 32 bytes). The secret never leaves the browser. */
-    encPublicKey: hex32,
-  })
-  .strict();
+export { RegisterPayloadSchema };
 
 const notImplemented =
   (action: RelayActionName, lane: string): JobExecutor =>
@@ -73,5 +76,24 @@ export function defaultCatalogue(): Map<RelayActionName, ActionDefinition> {
   ];
   const map = new Map(list.map((d) => [d.action, d]));
   for (const a of RELAY_ACTIONS) if (!map.has(a)) throw new Error(`action ${a} has no definition`);
+  return map;
+}
+
+/**
+ * The catalogue with plan lane L-ACC's executors: register (authorised by its RelayAction
+ * signature, which is also the enrolment), and withdraw and append-inbox, each authorised by the
+ * gated call's OWN Passport signature (`passport-call`), so every action is one wallet prompt.
+ */
+export function accountCatalogue(deps: AccountActionDeps): Map<RelayActionName, ActionDefinition> {
+  const map = defaultCatalogue();
+  const set = (action: RelayActionName, patch: Partial<ActionDefinition>) =>
+    map.set(action, { ...map.get(action)!, ...patch });
+  set('register', { executor: registerExecutor(deps) });
+  set('withdraw', { auth: 'passport-call', payload: WithdrawPayloadSchema, executor: withdrawExecutor(deps) });
+  set('append-inbox', {
+    auth: 'passport-call',
+    payload: AppendInboxPayloadSchema,
+    executor: appendInboxExecutor(deps),
+  });
   return map;
 }
