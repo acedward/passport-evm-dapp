@@ -126,7 +126,9 @@ describe('configuration', () => {
     expect(parseSponsorSeed(`0x${hex.toUpperCase()}`)).toBe(hex);
     expect(parseSponsorSeed(`SEED="${hex}"`)).toBe(hex);
     const words = generateMnemonic(wordlist, 128).split(' ');
-    words[0] = words[0] === 'abandon' ? 'ability' : 'abandon';
+    // A word outside the BIP-39 list, so never valid (a swapped real word keeps a valid
+    // checksum about one time in sixteen).
+    words[0] = 'zzzzzz';
     expect(() => parseSponsorSeed(words.join(' '))).toThrow(/invalid BIP-39/);
   });
 
