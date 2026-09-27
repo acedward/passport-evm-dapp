@@ -1,18 +1,19 @@
 // The application shell: brand, wallet connection and the five sections. The layout and styling
 // are deliberately plain; the MN Bank design (P1.5) replaces them once the owner approves the
-// mockup (question Q16). Accounts, Markets, Trade and Local data are complete; Transfers arrives with
-// its lane.
+// mockup (question Q16). Accounts, Markets, Transfers, Trade and Local data are complete.
 
 import { useEffect, useState } from 'react';
 
 import type { NetworkProfile } from '@mnbank/core';
 
+import { TransfersProvider } from './bridge/TransfersContext.js';
 import { loadSiteConfig, type SiteConfig } from './config.js';
 import { MarketProvider } from './market/MarketContext.js';
 import { Accounts } from './pages/Accounts.js';
 import { LocalData } from './pages/LocalData.js';
 import { Markets } from './pages/Markets.js';
 import { Trade } from './pages/Trade.js';
+import { Transfers } from './pages/Transfers.js';
 import { StoreProvider, useStore } from './store/StoreContext.js';
 import { WalletProvider, useWallet } from './wallet/WalletContext.js';
 
@@ -155,6 +156,8 @@ function Shell({ network, config }: { network: NetworkProfile; config: SiteConfi
           <Accounts network={network} relayUrl={config.relayUrl} />
         ) : section === 'markets' ? (
           <Markets />
+        ) : section === 'transfers' ? (
+          <Transfers network={network} />
         ) : section === 'trade' ? (
           <Trade network={network} relayUrl={config.relayUrl} />
         ) : (
@@ -181,7 +184,9 @@ export function App() {
     <StoreProvider>
       <WalletProvider network={config.network}>
         <MarketProvider network={config.network} tokens={config.tokens}>
-          <Shell network={config.network} config={config} />
+          <TransfersProvider network={config.network} relayUrl={config.relayUrl}>
+            <Shell network={config.network} config={config} />
+          </TransfersProvider>
         </MarketProvider>
       </WalletProvider>
     </StoreProvider>

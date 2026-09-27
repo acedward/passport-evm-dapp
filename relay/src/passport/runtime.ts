@@ -125,6 +125,12 @@ export class PassportRuntime {
     return new PassportRuntime(client, { ...options, managedPath }, shared);
   }
 
+  /** The indexer-backed public data provider every job shares (the bridge's relayer reads the
+   *  vault's request records through it). */
+  get publicDataProvider(): unknown {
+    return this.shared.publicDataProvider;
+  }
+
   /** The compiled account (the MN Bank shape), with the coin-store witnesses and the key
    *  volume's assets. */
   compiledAccount(): unknown {

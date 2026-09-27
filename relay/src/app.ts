@@ -9,6 +9,7 @@
 //   GET  /v1/accounts/:account/state    public ledger reads (L-ACC)
 //   GET  /v1/accounts/:account/inbox    public inbox ciphertexts (L-ACC)
 //   GET  /v1/accounts/:account/zswap    the account's Zswap leaves (exact positions) and spends (L-ACC)
+//   GET  /v1/bridge/quote               the Sepolia fields a bridge start signs, nonce included (L-BRG)
 //
 // Request bodies are never logged. Errors are JSON: {"error": {"code", "message", "detail"?}}.
 
@@ -18,6 +19,9 @@ import { cors } from 'hono/cors';
 import {
   API_PATHS,
   ActionRequestSchema,
+  BRIDGE_KINDS,
+  type BridgeKind,
+  type BridgeQuote,
   RELAY_ACTIONS,
   type ActionRequest,
   type HealthResponse,
@@ -46,6 +50,8 @@ export interface AppDeps {
   sponsor: SponsorSession;
   health: () => Promise<HealthResponse>;
   chain: ChainReader;
+  /** The bridge's read side (plan L-BRG): the quote a start signs; absent when the relay cannot bridge. */
+  bridge?: { available(): boolean; quote(kind: BridgeKind, account: string, erc20?: string): Promise<BridgeQuote> };
   /** Verifies a gated call's own Passport signature (lanes); absent in P1. */
   passportCall?: (def: ActionDefinition, request: ActionRequest) => Promise<VerifyOutcome>;
   /** The caller's address for rate limiting (default: the socket's, or X-Forwarded-For's last hop). */
@@ -194,6 +200,35 @@ export function createApp(deps: AppDeps): Hono {
       return apiError(c, 503, 'chain-unavailable', 'the chain could not be read right now; try again shortly');
     }
   };
+  app.get(API_PATHS.bridgeQuote, async (c) => {
+    const refused = limited(readLimiter, clientAddress(c), c);
+    if (refused) return refused;
+    const kind = c.req.query('kind') as BridgeKind | undefined;
+    const account = (c.req.query('account') ?? '').replace(/^0x/, '').toLowerCase();
+    const erc20 = c.req.query('erc20');
+    if (!kind || !(BRIDGE_KINDS as readonly string[]).includes(kind) || !/^[0-9a-f]{64}$/.test(account))
+      return apiError(c, 400, 'bad-request', 'needs kind=deposit|withdraw and a 64-hex account');
+    if (erc20 !== undefined && !/^0x[0-9a-fA-F]{40}$/.test(erc20))
+      return apiError(c, 400, 'bad-request', 'erc20 must be a 0x-prefixed 20-byte address');
+    if (!deps.bridge || !deps.bridge.available())
+      return apiError(c, 503, 'bridge-unavailable', 'the bank cannot bridge right now');
+    c.header('Cache-Control', 'no-store');
+    try {
+      return c.json(await deps.bridge.quote(kind, account, erc20));
+    } catch (e) {
+      if (e instanceof Error && e.name === 'PublicError') {
+        return apiError(c, 400, (e as Error & { code: string }).code, e.message);
+      }
+      log.warn('bridge quote failed', { error: e });
+      return apiError(
+        c,
+        503,
+        'chain-unavailable',
+        'Sepolia or the vault could not be read right now; try again shortly',
+      );
+    }
+  });
+
   app.get('/v1/accounts/:account/state', accountRead('state'));
   app.get('/v1/accounts/:account/inbox', accountRead('inbox'));
   app.get('/v1/accounts/:account/zswap', accountRead('zswap'));

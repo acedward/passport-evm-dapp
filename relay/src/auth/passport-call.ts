@@ -5,7 +5,7 @@
 import type { ActionRequest } from '@mnbank/core';
 
 import type { ActionDefinition } from '../actions/catalogue.js';
-import { checkGatedCall } from '../passport/gated-verify.js';
+import { checkGatedCall, isGatedAction } from '../passport/gated-verify.js';
 import type { PassportRuntime } from '../passport/runtime.js';
 import { checkTradeCall, isTradeAction } from '../trade/verify.js';
 import type { DigestReplayGuard, VerifyOutcome } from './verifiers.js';
@@ -25,7 +25,7 @@ export function passportCallAuthoriser(
         return { ok: false, code: 'replayed', reason: 'this authorisation was already used' };
       return { ok: true, signer: r.signer, kind: 'passport-call', account: r.account };
     }
-    if (def.action !== 'withdraw' && def.action !== 'append-inbox') {
+    if (!isGatedAction(def.action)) {
       return { ok: false, code: 'not-supported', reason: 'this action is not authorised by a Passport signature' };
     }
     const rt = runtime();

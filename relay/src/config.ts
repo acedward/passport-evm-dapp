@@ -8,6 +8,8 @@
 import { mnemonicToSeedSync, validateMnemonic } from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english.js';
 import {
+  DEFAULT_EVM_GAS,
+  type EvmGasPolicy,
   type NetworkOverrides,
   type NetworkProfile,
   type TokenRegistry,
@@ -64,6 +66,9 @@ export interface RelayConfig {
   };
   /** Health reports low gas when the vault's EVM account holds less than this (wei). */
   vaultGasLowWei: bigint;
+  /** The Sepolia gas fields every bridge start signs (the MPC signs them verbatim). A withdrawal's
+   *  gas is paid from the vault's shared EVM account, so the relay accepts no other values. */
+  bridgeGas: EvmGasPolicy;
   healthCacheSeconds: number;
   logLevel: LogLevel;
 }
@@ -261,6 +266,16 @@ export function loadConfig(env: Env, readFile: ReadFile): { config: RelayConfig;
       maxBodyBytes: int(env.RELAY_MAX_BODY_BYTES, 1_048_576, 'RELAY_MAX_BODY_BYTES', 1024),
     },
     vaultGasLowWei: big(env.VAULT_GAS_LOW_WEI, 2_000_000_000_000_000n, 'VAULT_GAS_LOW_WEI'),
+    bridgeGas: {
+      gasLimit: big(env.BRIDGE_EVM_GAS_LIMIT, DEFAULT_EVM_GAS.gasLimit, 'BRIDGE_EVM_GAS_LIMIT'),
+      maxFeePerGas: big(env.BRIDGE_EVM_MAX_FEE_PER_GAS, DEFAULT_EVM_GAS.maxFeePerGas, 'BRIDGE_EVM_MAX_FEE_PER_GAS'),
+      maxPriorityFeePerGas: big(
+        env.BRIDGE_EVM_MAX_PRIORITY_FEE_PER_GAS,
+        DEFAULT_EVM_GAS.maxPriorityFeePerGas,
+        'BRIDGE_EVM_MAX_PRIORITY_FEE_PER_GAS',
+      ),
+      keyVersion: DEFAULT_EVM_GAS.keyVersion,
+    },
     healthCacheSeconds: int(env.HEALTH_CACHE_SECONDS, 15, 'HEALTH_CACHE_SECONDS', 0, 600),
     logLevel,
   };
