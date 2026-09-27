@@ -1,0 +1,102 @@
+/*
+ * MN Bank design tokens (plan P1.5), taken from the owner-approved mockup (Q16 A).
+ *
+ * One primary (navy), ONE muted accent (antique gold, used sparingly: the masthead rule, the
+ * monogram, the selected row, the current tracker stage, warnings), slate text on ivory.
+ * No gradients, no glass, no shadows beyond a hairline. Every text pair below is checked
+ * against WCAG AA by web/test/design-contrast.test.ts, so change a colour there first.
+ */
+:root {
+  /* ── colour: surfaces ─────────────────────────────────────────────── */
+  --paper: #f8f5ee; /* page background, ivory */
+  --surface: #ffffff; /* panels, tables, the tab bar */
+  --surface-alt: #f3efe6; /* quiet fills: the pending box, unit suffixes, copy fields */
+  --overlay: rgb(14 31 61 / 55%); /* behind a dialog: navy-deep at 55 % */
+
+  /* ── colour: brand ────────────────────────────────────────────────── */
+  --navy: #152c55; /* primary */
+  --navy-deep: #0e1f3d;
+  --navy-hover: #1e3b6e;
+  --navy-soft: #e8edf5; /* navy tint: badges, secondary-button hover */
+  --navy-soft-border: #c8d2e3;
+  --gold: #a8864a; /* THE accent: rules, markers, the monogram ring (never text) */
+  --gold-ink: #7a5a1f; /* gold when it has to be text */
+  --gold-soft: #f6efdd;
+  --gold-soft-border: #e3d3ae;
+
+  /* ── colour: text ─────────────────────────────────────────────────── */
+  --ink: #1d2733; /* body text, slate-navy */
+  --slate: #465262; /* secondary text */
+  --muted: #5b6573; /* captions, labels */
+  --on-navy: #f7f3ea; /* text on the navy masthead */
+  --on-navy-muted: #c9d1e0;
+  --on-navy-gold: #eadcb9; /* the "Midnight stagenet" badge on navy */
+  --on-accent: #ffffff; /* text on a filled navy or danger button */
+
+  /* ── colour: rules and fields ─────────────────────────────────────── */
+  --rule: #ddd6c8; /* hairlines */
+  --rule-strong: #a9a08e;
+  --field-border: #767c86; /* ≥ 3:1 against white (WCAG 1.4.11) */
+
+  /* ── colour: states ───────────────────────────────────────────────── */
+  --positive: #2c6340;
+  --positive-soft: #e7f0e9;
+  --positive-soft-border: #c3d8c8;
+  --warn-ink: #7a4b00;
+  --warn-soft: #fbf2df;
+  --warn-soft-border: #ead9b5;
+  --danger: #9c2b2b;
+  --danger-hover: #822222;
+  --danger-soft: #f8e9e7;
+  --danger-soft-border: #ebcfcb;
+  --disabled-bg: #e4e1da;
+  --disabled-border: #d2cdc3;
+  --disabled-ink: #545b65;
+  --sepolia-bg: #22396a; /* the "Sepolia" badge on navy */
+  --sepolia-border: #4a6296;
+
+  /* ── type ─────────────────────────────────────────────────────────── */
+  --serif: 'Libre Caslon Text', Georgia, 'Times New Roman', Times, serif;
+  --sans:
+    'Source Sans 3', 'Source Sans Pro', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Helvetica,
+    Arial, sans-serif;
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  --text-xs: 0.75rem; /* 12 px: table heads, eyebrows */
+  --text-sm: 0.8125rem; /* 13 px: captions, notes */
+  --text-md: 0.875rem; /* 14 px: secondary text */
+  --text-base: 1rem; /* 16 px: body */
+  --text-lg: 1.125rem; /* 18 px: sub-section titles */
+  --text-xl: 1.375rem; /* 22 px: panel titles */
+  --text-2xl: 2rem; /* 32 px: page titles, the big figure */
+  --tracking-caps: 0.06em;
+
+  /* ── spacing ──────────────────────────────────────────────────────── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 28px;
+  --space-8: 32px;
+  --space-9: 48px;
+  --gutter: 16px; /* 32 px from 768 px up */
+  --page-max: 1120px;
+  --tap: 44px; /* minimum touch target (buttons, fields) */
+
+  /* ── rules and shape ──────────────────────────────────────────────── */
+  --rule-hair: 1px solid var(--rule);
+  --rule-head: 1.5px solid var(--navy); /* under a table head */
+  --rule-total: 3px double var(--ink); /* under a subtotal */
+  --radius: 3px;
+  --radius-sm: 2px;
+
+  /* ── motion (off under prefers-reduced-motion, base.css) ─────────── */
+  --motion-fast: 0.12s ease;
+}
+
+@media (min-width: 768px) {
+  :root {
+    --gutter: 32px;
+  }
+}
