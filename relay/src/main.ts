@@ -4,7 +4,7 @@
 
 import { readFileSync } from 'node:fs';
 
-import { accountCatalogue } from './actions/catalogue.js';
+import { accountCatalogue, withTrade } from './actions/catalogue.js';
 import { createApp } from './app.js';
 import { NonceStore } from './auth/nonces.js';
 import { passportCallAuthoriser } from './auth/passport-call.js';
@@ -43,6 +43,7 @@ async function main(): Promise<void> {
     'account/activate_initial_device_with_evm',
     'account/withdraw_shielded_with_evm',
     'account/append_inbox_with_evm',
+    'account/open_swap_shielded_with_evm',
   ];
   const keys = () => checkKeyVolume(config.managedPath, config.keysFingerprint, requiredProverKeys);
   const keyCheck = keys();
@@ -138,14 +139,25 @@ async function main(): Promise<void> {
     log,
     nonces,
     queue,
-    catalogue: accountCatalogue({
-      runtime: () => runtime,
-      sponsor,
-      vaultAddress: config.network.bridge.vaultAddress,
-      chainId: config.network.evm.chainId,
-      replay,
-      log: log.child({ component: 'accounts' }),
-    }),
+    catalogue: withTrade(
+      accountCatalogue({
+        runtime: () => runtime,
+        sponsor,
+        vaultAddress: config.network.bridge.vaultAddress,
+        chainId: config.network.evm.chainId,
+        replay,
+        log: log.child({ component: 'accounts' }),
+      }),
+      {
+        runtime: () => runtime,
+        sponsor,
+        kernelUrl: config.network.zswap.kernelUrl,
+        batcherUrl: config.network.zswap.batcherUrl,
+        batcherTarget: config.network.zswap.batcherTarget,
+        replay,
+        log: log.child({ component: 'trade' }),
+      },
+    ),
     sponsor,
     health,
     chain,
