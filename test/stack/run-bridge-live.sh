@@ -65,7 +65,7 @@ for _ in range(200):
 
 rget() { docker exec "$RELAY" bun -e 'fetch(process.argv[1]).then(async (r) => { console.log(await r.text()); process.exit(r.ok ? 0 : 1); }).catch(() => process.exit(2))' "$1"; }
 
-synced() { rget http://127.0.0.1:8080/health 2>/dev/null | python3 -c 'import json,sys; h=json.load(sys.stdin); sys.exit(0 if h["sponsor"]["synced"] else 1)'; }
+synced() { rget http://127.0.0.1:8080/health 2>/dev/null | python3 -c 'import json,sys; h=json.load(sys.stdin); sys.exit(0 if h["sponsor"]["synced"] else 1)' 2>/dev/null; }
 
 wait_synced() {
   for _ in $(seq 1 120); do
@@ -178,6 +178,9 @@ case "$CMD" in
     token="${2:-stkA}"
     amount="${3:-1}"
     rm -f "$LIVE_DIR/signals/"*
+    # A phase starts with a proof (a k=18 proof takes about 8 GB): wait for the headroom, since
+    # another lane may be proving on its own stack.
+    for i in $(seq 1 31); do headroom_ok && break; [[ "$i" == 31 ]] && { say "no 10 GB headroom for 30 min"; exit 75; }; sleep 60; done
     docker rm -f "$PREFIX-live" >/dev/null 2>&1 || true
     log="$LIVE_DIR/logs/phase-$name-$token-$amount-$(date -u +%Y%m%dT%H%M%SZ).log"
     say "phase $name $token $amount (log $log)"
