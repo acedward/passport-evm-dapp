@@ -1,4 +1,5 @@
-// The `passport-call` authorisation for the account's gated actions (withdraw, append-inbox):
+// The `passport-call` authorisation for the account's gated actions (withdraw, append-inbox, and
+// the two bridge starts, plan L-BRG):
 // the customer signs ONLY the call's own EIP-712 typed data, and that one signature both
 // authorises the relay to spend DUST on the call and becomes the circuit's signature argument
 // (spec: one prompt per action; plan P1.3, L-ACC.4).
@@ -16,9 +17,13 @@
 
 import {
   AppendInboxPayloadSchema,
+  BridgeDepositPayloadSchema,
+  BridgeWithdrawPayloadSchema,
   PassportAuthSchema,
   WithdrawPayloadSchema,
   type AppendInboxPayload,
+  type BridgeDepositPayload,
+  type BridgeWithdrawPayload,
   type PassportAuth,
   type RelayActionName,
   type WithdrawPayload,
@@ -26,9 +31,27 @@ import {
 
 import type { AccountLedger, PassportRuntime } from './runtime.js';
 
-export type GatedAction = Extract<RelayActionName, 'withdraw' | 'append-inbox'>;
+export type GatedAction = Extract<RelayActionName, 'withdraw' | 'append-inbox' | 'bridge-deposit' | 'bridge-withdraw'>;
 
-export type GatedPayload<A extends GatedAction> = A extends 'withdraw' ? WithdrawPayload : AppendInboxPayload;
+/** Every action a gated call's own Passport signature authorises. */
+export const GATED_ACTIONS: readonly GatedAction[] = ['withdraw', 'append-inbox', 'bridge-deposit', 'bridge-withdraw'];
+
+export const isGatedAction = (a: string): a is GatedAction => (GATED_ACTIONS as readonly string[]).includes(a);
+
+export type GatedPayload<A extends GatedAction> = A extends 'withdraw'
+  ? WithdrawPayload
+  : A extends 'append-inbox'
+    ? AppendInboxPayload
+    : A extends 'bridge-deposit'
+      ? BridgeDepositPayload
+      : BridgeWithdrawPayload;
+
+const SCHEMAS = {
+  withdraw: WithdrawPayloadSchema,
+  'append-inbox': AppendInboxPayloadSchema,
+  'bridge-deposit': BridgeDepositPayloadSchema,
+  'bridge-withdraw': BridgeWithdrawPayloadSchema,
+} as const;
 
 export interface GatedCheckOk<A extends GatedAction = GatedAction> {
   ok: true;
@@ -57,8 +80,7 @@ const hex = (b: Uint8Array) => Buffer.from(b).toString('hex');
 
 /** Parse a gated action's body; null when it is not the action's shape. */
 export function parseGatedPayload<A extends GatedAction>(action: A, payload: unknown): GatedPayload<A> | null {
-  const schema = action === 'withdraw' ? WithdrawPayloadSchema : AppendInboxPayloadSchema;
-  const r = schema.safeParse(payload);
+  const r = SCHEMAS[action].safeParse(payload);
   return r.success ? (r.data as GatedPayload<A>) : null;
 }
 
@@ -93,7 +115,11 @@ export async function checkGatedCall<A extends GatedAction>(
     request =
       action === 'withdraw'
         ? core.withdrawRequest(payload as WithdrawPayload)
-        : core.appendInboxRequest(payload as AppendInboxPayload);
+        : action === 'append-inbox'
+          ? core.appendInboxRequest(payload as AppendInboxPayload)
+          : action === 'bridge-deposit'
+            ? core.bridgeDepositStartRequest(payload as BridgeDepositPayload)
+            : core.bridgeWithdrawStartRequest(payload as BridgeWithdrawPayload);
   } catch {
     return { ok: false, code: 'malformed', reason: 'the call arguments do not form a valid Passport call' };
   }

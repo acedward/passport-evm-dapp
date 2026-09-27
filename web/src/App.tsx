@@ -1,17 +1,19 @@
 // The application shell: brand, wallet connection and the five sections. The layout and styling
 // are deliberately plain; the MN Bank design (P1.5) replaces them once the owner approves the
-// mockup (question Q16). Accounts, Markets and Local data are complete; Transfers and Trade arrive with
-// their lanes.
+// mockup (question Q16). Accounts, Markets, Transfers and Local data are complete; Trade arrives with
+// its lane.
 
 import { useEffect, useState } from 'react';
 
 import type { NetworkProfile } from '@mnbank/core';
 
+import { TransfersProvider } from './bridge/TransfersContext.js';
 import { loadSiteConfig, type SiteConfig } from './config.js';
 import { MarketProvider } from './market/MarketContext.js';
 import { Accounts } from './pages/Accounts.js';
 import { LocalData } from './pages/LocalData.js';
 import { Markets } from './pages/Markets.js';
+import { Transfers } from './pages/Transfers.js';
 import { StoreProvider, useStore } from './store/StoreContext.js';
 import { WalletProvider, useWallet } from './wallet/WalletContext.js';
 
@@ -153,6 +155,8 @@ function Shell({ network, config }: { network: NetworkProfile; config: SiteConfi
           <Accounts network={network} relayUrl={config.relayUrl} />
         ) : section === 'markets' ? (
           <Markets />
+        ) : section === 'transfers' ? (
+          <Transfers network={network} />
         ) : (
           <section data-testid={`section-${section}`}>
             <h2>{SECTIONS.find((s) => s.id === section)?.label}</h2>
@@ -177,7 +181,9 @@ export function App() {
     <StoreProvider>
       <WalletProvider network={config.network}>
         <MarketProvider network={config.network} tokens={config.tokens}>
-          <Shell network={config.network} config={config} />
+          <TransfersProvider network={config.network} relayUrl={config.relayUrl}>
+            <Shell network={config.network} config={config} />
+          </TransfersProvider>
         </MarketProvider>
       </WalletProvider>
     </StoreProvider>

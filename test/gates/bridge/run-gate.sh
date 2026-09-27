@@ -229,6 +229,7 @@ docker run --rm --name "$RUN_NAME" \
   -v "$GATE_LAYOUT_DIR/managed:$CONTAINER_ROOT/contracts/managed:ro" \
   -v "$GATE_SDK_DIR/node_modules:$CONTAINER_ROOT/contracts/erc20-vault/node_modules:ro" \
   -v "$HERE:/aa/g/gate:ro" \
+  -v "$REPO/relay/src/bridge:/relay/src/bridge:ro" \
   -v "$GATE_STATE_DIR:/state" \
   -v "$GATE_EVIDENCE_DIR:/evidence" \
   -e GATE_STATE_DIR=/state -e GATE_EVIDENCE_DIR=/evidence \

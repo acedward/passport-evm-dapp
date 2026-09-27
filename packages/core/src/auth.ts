@@ -38,6 +38,7 @@ export const RELAY_ACTIONS = [
   'take',
   'bridge-deposit',
   'bridge-withdraw',
+  'bridge-resume',
 ] as const;
 export type RelayActionName = (typeof RELAY_ACTIONS)[number];
 

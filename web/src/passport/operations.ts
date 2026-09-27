@@ -67,7 +67,7 @@ export interface OperationEnv {
 
 const lower = (s: string) => s.toLowerCase();
 
-async function signTypedData(env: OperationEnv, typedData: unknown): Promise<string> {
+export async function signTypedData(env: OperationEnv, typedData: unknown): Promise<string> {
   const sig = await env.provider.request({
     method: 'eth_signTypedData_v4',
     params: [
@@ -239,7 +239,7 @@ export async function syncAccount(env: OperationEnv, account: string): Promise<S
 
 // ── The two gated calls of this lane (L-ACC.3, L-ACC.4, L-ACC.5) ─────────────────────
 
-async function gatedContext(env: OperationEnv, account: string) {
+export async function gatedContext(env: OperationEnv, account: string) {
   const state = await env.relay.accountState(account);
   if (!state || !state.booted) throw new OperationError('The account is not active.');
   const hint = BigInt(readRoster(env.store, env.scope, account)?.useCounter ?? '0');

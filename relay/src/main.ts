@@ -4,11 +4,17 @@
 
 import { readFileSync } from 'node:fs';
 
-import { accountCatalogue } from './actions/catalogue.js';
+import { bridgeConfigured } from '@mnbank/core';
+
+import { accountCatalogue, withBridge } from './actions/catalogue.js';
 import { createApp } from './app.js';
 import { NonceStore } from './auth/nonces.js';
 import { passportCallAuthoriser } from './auth/passport-call.js';
 import { DigestReplayGuard } from './auth/verifiers.js';
+import type { BridgeBackend } from './bridge/backend.js';
+import { loadLiveBridgeBackend } from './bridge/live-backend.js';
+import { BridgeService } from './bridge/service.js';
+import { deviceChecker, gatedStartVerifier } from './bridge/wiring.js';
 import { IndexerClient } from './chain/indexer.js';
 import { IndexerChainReader, notImplementedChainReader, type ChainReader } from './chain/reader.js';
 import { ConfigError, loadConfig } from './config.js';
@@ -38,11 +44,23 @@ async function main(): Promise<void> {
   redactor.addSecret(secrets.sepoliaRpcUrl);
   const log = createLogger({ level: config.logLevel, redactor }, { service: 'relay', network: config.network.name });
 
-  /** The prover keys the account actions need (plan L-ACC). */
+  /** The prover keys the account actions (plan L-ACC) and the bridge (plan L-BRG: the account's
+   *  five bridge circuits and the vault and singleton circuits they call) need. */
   const requiredProverKeys = [
     'account/activate_initial_device_with_evm',
     'account/withdraw_shielded_with_evm',
     'account/append_inbox_with_evm',
+    'account/bridge_deposit_start_with_evm',
+    'account/bridge_deposit_complete',
+    'account/bridge_withdraw_start_with_evm',
+    'account/bridge_withdraw_complete',
+    'account/bridge_withdraw_refund',
+    'Erc20Vault/startDeposit',
+    'Erc20Vault/completeDeposit',
+    'Erc20Vault/startWithdraw',
+    'Erc20Vault/completeWithdraw',
+    'Erc20Vault/refundWithdraw',
+    'SignetSigner/signBidirectional',
   ];
   const keys = () => checkKeyVolume(config.managedPath, config.keysFingerprint, requiredProverKeys);
   const keyCheck = keys();
@@ -98,13 +116,31 @@ async function main(): Promise<void> {
       log.error('the Passport runtime could not be loaded; account actions are unavailable', { error: e });
     }
   }
+  const indexer = new IndexerClient({ indexerUrl: config.network.midnight.indexerUrl });
   const chain: ChainReader = runtime
-    ? new IndexerChainReader(
-        (account) => runtime!.ledgerState(account),
-        new IndexerClient({ indexerUrl: config.network.midnight.indexerUrl }),
-      )
+    ? new IndexerChainReader((account) => runtime!.ledgerState(account), indexer)
     : notImplementedChainReader;
   const replay = new DigestReplayGuard(config.limits.authMaxTtlSeconds * 6);
+
+  // The bridge (plan L-BRG): needs the runtime, a complete vault profile and a Sepolia RPC.
+  let bridgeBackend: BridgeBackend | null = null;
+  if (runtime && bridgeConfigured(config.network) && secrets.sepoliaRpcUrl) {
+    try {
+      bridgeBackend = await loadLiveBridgeBackend({
+        runtime,
+        sponsor,
+        network: config.network,
+        evmRpcUrl: secrets.sepoliaRpcUrl,
+        indexer,
+        log: log.child({ component: 'bridge' }),
+      });
+      log.info('bridge ready', { vault: config.network.bridge.vaultAddress });
+    } catch (e) {
+      log.error('the bridge could not be loaded; bridge actions are unavailable', { error: e });
+    }
+  } else {
+    log.info('bridge not configured (it needs the key volume, the vault profile and SEPOLIA_RPC_URL_FILE)');
+  }
 
   const nonces = new NonceStore(config.limits.nonceTtlSeconds, config.limits.maxNonces);
   const queue = new JobQueue({
@@ -132,23 +168,38 @@ async function main(): Promise<void> {
     vaultGasLowWei: config.vaultGasLowWei,
     cacheSeconds: config.healthCacheSeconds,
   });
+  const bridge = new BridgeService({
+    backend: () => bridgeBackend,
+    laneLoad: (lane, account) => queue.laneLoad(lane, account),
+    gas: config.bridgeGas,
+    tokens: config.tokens,
+    vaultAddress: config.network.bridge.vaultAddress,
+    verifyStart: gatedStartVerifier(() => runtime),
+    releaseDigest: (digest) => replay.release(digest),
+    isDevice: deviceChecker(() => runtime),
+    log: log.child({ component: 'bridge' }),
+  });
   const app = createApp({
     config,
     version: RELAY_VERSION,
     log,
     nonces,
     queue,
-    catalogue: accountCatalogue({
-      runtime: () => runtime,
-      sponsor,
-      vaultAddress: config.network.bridge.vaultAddress,
-      chainId: config.network.evm.chainId,
-      replay,
-      log: log.child({ component: 'accounts' }),
-    }),
+    catalogue: withBridge(
+      accountCatalogue({
+        runtime: () => runtime,
+        sponsor,
+        vaultAddress: config.network.bridge.vaultAddress,
+        chainId: config.network.evm.chainId,
+        replay,
+        log: log.child({ component: 'accounts' }),
+      }),
+      bridge,
+    ),
     sponsor,
     health,
     chain,
+    bridge,
     passportCall: passportCallAuthoriser(() => runtime, replay),
   });
 

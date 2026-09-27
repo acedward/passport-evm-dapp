@@ -10,6 +10,7 @@ bun.lock
 packages/core/src/tokens/deployments/*.json
 packages/core/src/passport/vendor/offer-codec.ts
 packages/core/src/passport/vendor/signet-derive.ts
+relay/src/bridge/vendor/relayer.ts
 # Prose and tables are formatted by hand
 *.md
 # Kernel responses captured verbatim from the staging exchange; never reformat
