@@ -11,6 +11,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fontsource/libre-caslon-text": "5.3.0",
+    "@fontsource/source-sans-3": "5.3.0",
     "@mnbank/core": "workspace:*",
     "ethers": "6.17.0",
     "react": "19.3.0",

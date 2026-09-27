@@ -1,0 +1,215 @@
+/*
+ * Compatibility styles for sections that do not use the MN Bank components yet (plan P1.5).
+ *
+ * The Transfers and Trade sections were built by lanes L-BRG and L-TRD with plain markup and a
+ * few class names (notice, hint, mono, num, link, table-wrap, tracker, legs, book-sides, …). Until
+ * they adopt the components (web/README.md, "Adopting the design system"), these rules give
+ * their plain elements the bank's look, scoped to those two sections only so nothing here can
+ * leak into a page that already uses the components. Delete this file once both have moved.
+ */
+
+/* Old class names used anywhere: map them onto the design's tones. */
+.notice.error {
+  border-color: var(--danger-soft-border);
+  border-left-color: var(--danger);
+  background: var(--danger-soft);
+  color: var(--ink);
+}
+.notice.ok {
+  border-color: var(--positive-soft-border);
+  border-left-color: var(--positive);
+  background: var(--positive-soft);
+}
+.hint {
+  color: var(--muted);
+  font-size: var(--text-md);
+}
+.table-wrap {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+:is([data-testid='section-transfers'], [data-testid='section-trade']) > h2 {
+  font-size: var(--text-2xl);
+  line-height: 1.2;
+  padding-bottom: 18px;
+  margin-bottom: var(--space-6);
+  border-bottom: var(--rule-hair);
+}
+
+:is([data-testid='section-transfers'], [data-testid='section-trade']) section {
+  background: var(--surface);
+  border: var(--rule-hair);
+  border-radius: var(--radius);
+  padding: var(--space-5);
+  margin-top: var(--space-5);
+  min-width: 0;
+}
+
+:is([data-testid='section-transfers'], [data-testid='section-trade']) section section {
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+
+:is([data-testid='section-transfers'], [data-testid='section-trade']) h3 {
+  font-size: var(--text-xl);
+  margin-bottom: 14px;
+}
+
+:is([data-testid='section-transfers'], [data-testid='section-trade']) h4 {
+  margin: var(--space-4) 0 var(--space-2);
+}
+
+:is([data-testid='section-transfers'], [data-testid='section-trade']) p {
+  margin: 0 0 var(--space-2);
+}
+
+:is([data-testid='section-transfers'], [data-testid='section-trade']) .notice {
+  margin: var(--space-3) 0;
+}
+
+:is([data-testid='section-transfers'], [data-testid='section-trade']) form {
+  display: grid;
+  gap: var(--space-3);
+  max-width: 640px;
+}
+
+:is([data-testid='section-transfers'], [data-testid='section-trade']) label {
+  display: grid;
+  gap: 6px;
+  font-weight: 600;
+  font-size: var(--text-md);
+}
+
+:is([data-testid='section-transfers'], [data-testid='section-trade'])
+  :is(input:not([type='checkbox'], [type='radio'], [type='file']), select) {
+  width: 100%;
+  min-width: 0;
+  height: var(--tap);
+  padding: 0 var(--space-3);
+  font: 400 var(--text-base) / 1 var(--sans);
+  font-variant-numeric: tabular-nums lining-nums;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--field-border);
+  border-radius: var(--radius-sm);
+}
+
+:is([data-testid='section-transfers'], [data-testid='section-trade']) button:not(.link) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap);
+  padding: 0 18px;
+  font: 600 0.9375rem/1 var(--sans);
+  border: 1px solid var(--navy);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--navy);
+  cursor: pointer;
+}
+
+:is([data-testid='section-transfers'], [data-testid='section-trade']) button[type='submit']:not(.link) {
+  background: var(--navy);
+  color: var(--on-accent);
+}
+
+:is([data-testid='section-transfers'], [data-testid='section-trade']) button:not(.link):disabled {
+  background: var(--disabled-bg);
+  border-color: var(--disabled-border);
+  color: var(--disabled-ink);
+  cursor: not-allowed;
+}
+
+:is([data-testid='section-transfers'], [data-testid='section-trade']) button.link {
+  background: none;
+  border: 0;
+  padding: 0 4px;
+  color: var(--navy);
+  font: 600 var(--text-md) / 1.4 var(--sans);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+:is([data-testid='section-transfers'], [data-testid='section-trade']) .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: var(--space-3) 0;
+}
+
+:is([data-testid='section-transfers'], [data-testid='section-trade']) table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+:is([data-testid='section-transfers'], [data-testid='section-trade']) th {
+  font: 600 var(--text-xs) / 1.3 var(--sans);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: left;
+  padding: 0 var(--space-2) var(--space-2);
+  border-bottom: var(--rule-head);
+}
+
+:is([data-testid='section-transfers'], [data-testid='section-trade']) td {
+  padding: 10px var(--space-2);
+  border-bottom: var(--rule-hair);
+  vertical-align: top;
+}
+
+:is([data-testid='section-transfers'], [data-testid='section-trade']) :is(th, td).num {
+  text-align: right;
+}
+
+:is([data-testid='section-transfers'], [data-testid='section-trade']) tr.selected td {
+  background: var(--gold-soft);
+}
+
+:is([data-testid='section-transfers'], [data-testid='section-trade']) caption {
+  text-align: left;
+  font-weight: 600;
+  padding-bottom: var(--space-2);
+}
+
+:is([data-testid='section-transfers'], [data-testid='section-trade']) :is(ul, ol) {
+  padding-left: var(--space-5);
+  margin: var(--space-2) 0;
+}
+
+:is([data-testid='section-transfers'], [data-testid='section-trade']) li + li {
+  margin-top: var(--space-1);
+}
+
+:is([data-testid='section-transfers'], [data-testid='section-trade']) .tracker {
+  border-left: 3px solid var(--gold);
+  background: var(--surface-alt);
+  padding: var(--space-3) var(--space-4);
+  margin: var(--space-3) 0;
+  overflow-wrap: anywhere;
+}
+
+:is([data-testid='section-transfers'], [data-testid='section-trade']) .legs {
+  padding: var(--space-3) 14px;
+}
+
+:is([data-testid='section-transfers'], [data-testid='section-trade']) .book-sides {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
+  gap: var(--space-5);
+}
+
+:is([data-testid='section-transfers'], [data-testid='section-trade']) details > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--navy);
+  min-height: var(--tap);
+  display: flex;
+  align-items: center;
+}
+
+:is([data-testid='section-transfers'], [data-testid='section-trade']) .mono {
+  overflow-wrap: anywhere;
+}
