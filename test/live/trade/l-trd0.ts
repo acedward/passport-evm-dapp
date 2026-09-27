@@ -402,7 +402,7 @@ async function ensureAccounts(state: TrdState): Promise<void> {
       },
     });
   }
-  if (!state.accounts.B) {
+  if (!state.accounts.B?.address) {
     if (dustSpent(state) + REGISTRATION_ESTIMATE_SPECKS > DUST_STOP_SPECKS)
       throw new Error('no DUST budget left to register B');
     // The device key is written BEFORE it is used (exclusive create, mode 600).
@@ -413,8 +413,11 @@ async function ensureAccounts(state: TrdState): Promise<void> {
     }
     const device = deviceOf('B');
     const { generateEncKeyPairPortable } = await import('@mnbank/core/passport');
-    const kp = generateEncKeyPairPortable();
-    // Keep the secret before anything leaves the process (the browser's order, L-ACC.1).
+    // Keep the secret before anything leaves the process (the browser's order, L-ACC.1); a retry
+    // after a failed registration reuses the pending key pair.
+    const kp = state.accounts.B?.encSecretHex
+      ? { secretKey: unhex(state.accounts.B.encSecretHex), publicKey: unhex(state.accounts.B.encPublicHex!) }
+      : generateEncKeyPairPortable();
     const pending: AccountRef = {
       address: '',
       source: 'l-trd',
