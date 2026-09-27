@@ -1,0 +1,119 @@
+name: CI
+
+on:
+  push:
+    branches: [main, '00039-**']
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUN_VERSION: 1.3.11
+  NODE_VERSION: 24
+
+jobs:
+  check:
+    name: Typecheck, lint, unit tests, web build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: bun install --frozen-lockfile
+      - name: Compile the Passport contracts' JavaScript (compactc 0.34.0, SHA-256 checked, no keys)
+        run: bun run contracts
+      - run: bun run format:check
+      - run: bun run lint
+      - run: bun run typecheck
+      - run: bun run test
+      - run: bun run build:web
+      - name: The relay starts under Bun and serves
+        run: |
+          printf '{"tokens":[{"symbol":"tUSDC","midnightName":"a","role":"usdc","decimals":6,"midnightColour":"%s"},{"symbol":"tSTK","midnightName":"b","role":"stock","decimals":6,"midnightColour":"%s"}]}' \
+            "$(printf 'aa%.0s' {1..32})" "$(printf 'bb%.0s' {1..32})" > "$RUNNER_TEMP/tokens.json"
+          RELAY_NETWORK=undeployed TOKENS_FILE="$RUNNER_TEMP/tokens.json" RELAY_HOST=127.0.0.1 RELAY_PORT=18080 bun relay/src/main.ts > "$RUNNER_TEMP/relay.log" 2>&1 &
+          RELAY_PID=$!
+          for i in $(seq 1 50); do curl -sf http://127.0.0.1:18080/v1/config >/dev/null && break; sleep 0.2; done
+          curl -sf http://127.0.0.1:18080/v1/config
+          curl -sf http://127.0.0.1:18080/v1/auth/nonce
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"payload":{}}' http://127.0.0.1:18080/v1/actions/withdraw)" -ge 400
+          kill "$RELAY_PID"
+          tail -3 "$RUNNER_TEMP/relay.log"
+      - name: Secret scan over the built bundle
+        run: SECRET_SCAN_EXTRA_PATHS=web/dist bash scripts/secret-scan.sh
+
+  e2e:
+    name: Browser smoke (Playwright)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.0-noble
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - run: bun run contracts
+      - run: bun run e2e
+        env:
+          HOME: /root
+      - if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-traces
+          path: test-results/
+          retention-days: 7
+
+  relay-image:
+    name: Relay image (no keys)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build
+        run: docker build -f deploy/relay.Dockerfile --build-arg RELAY_VERSION=${{ github.sha }} -t mnbank/relay:ci .
+      - name: The image holds no proving or verifier keys
+        run: |
+          found="$(docker run --rm --entrypoint sh mnbank/relay:ci -c 'find / -xdev \( -name "*.prover" -o -name "*.verifier" -o -name "*.bzkir" \) -print 2>/dev/null' || true)"
+          if [ -n "$found" ]; then echo "keys found in the image:"; echo "$found"; exit 1; fi
+          docker image inspect mnbank/relay:ci --format 'size {{.Size}} bytes'
+      - name: The image starts and serves
+        run: |
+          docker run -d --name relay-ci -e RELAY_NETWORK=stagenet -p 127.0.0.1:18080:8080 mnbank/relay:ci
+          for i in $(seq 1 50); do curl -sf http://127.0.0.1:18080/v1/config >/dev/null && break; sleep 0.3; done
+          curl -sf http://127.0.0.1:18080/v1/config
+          code="$(curl -s -o /tmp/health.json -w '%{http_code}' http://127.0.0.1:18080/health)"
+          cat /tmp/health.json
+          test "$code" = 503 || test "$code" = 200
+          docker logs relay-ci | tail -5
+          docker rm -f relay-ci
+
+  secret-scan:
+    name: Secret scan (full history)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - run: bash scripts/secret-scan.sh

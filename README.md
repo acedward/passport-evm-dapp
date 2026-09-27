@@ -56,3 +56,21 @@ To run everything in Docker instead (`node_modules` stays in a Docker volume):
 scripts/docker-check.sh all          # install, compile, check, build, browser tests
 scripts/docker-check.sh down         # remove the container and volumes
 ```
+
+## Checks and the secret scan
+
+CI (`.github/workflows/ci.yml`) runs on every push and pull request: typecheck, lint, format,
+unit tests, the web build, a relay start-up check under Bun, the Playwright smoke, a keyless
+relay image build, and the secret scan over the full history.
+
+This repository is public. Run the secret scan before every push:
+
+```sh
+SECRET_SCAN_FILES=/path/to/secret-file:/path/to/another bash scripts/secret-scan.sh
+```
+
+It runs gitleaks (the default rules plus wallet-secret, mnemonic, keyed-RPC-URL and
+labelled-private-key rules, each proven by a self-test on random fakes) over the whole history
+and the working tree. With `SECRET_SCAN_FILES`, it also reads those files in-process and checks
+that no 3-word window of a mnemonic and no key's hex appears anywhere in the tree or the
+history. It never prints a secret.
