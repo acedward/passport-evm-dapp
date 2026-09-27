@@ -1,0 +1,3 @@
+[submodule "vendor/passport"]
+	path = vendor/passport
+	url = https://github.com/acedward/passport.git

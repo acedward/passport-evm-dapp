@@ -22,3 +22,37 @@ A customer with only an EVM wallet (MetaMask or any EIP-1193 wallet) can:
 ## How this branch works
 
 `00039-passport-evm-dapp` is the master branch of this project's single pull request into `main`. Work is done on short-lived branches whose temporary pull requests target this branch, and each is merged in with a merge commit once its checks are green. The master pull request stays a draft until the work is complete.
+
+## Repository layout
+
+| Path | What it holds |
+|---|---|
+| `packages/core` | Shared, environment-neutral TypeScript: network profiles, the token registry, amount maths, the relay's action authorisation and API types, and the browser-safe Passport client surface (`@mnbank/core/passport`). |
+| `relay/` | The relay service (Bun + Hono). |
+| `web/` | The web app (Vite + React). |
+| `deploy/` | Compose files, Dockerfiles, `.env.example` and the runbook. |
+| `scripts/` | The contract light compile, the Docker check runner and the secret scan. |
+| `test/` | Browser end-to-end tests (Playwright). |
+| `vendor/passport` | A git submodule: [`acedward/passport`](https://github.com/acedward/passport), pinned. The account contract and its client come from here. |
+
+## Development
+
+Requirements: Bun 1.3.11 and Node 24 (for the test runner), or Docker only.
+
+```sh
+git submodule update --init          # the pinned Passport sources
+bun install
+bun run contracts                    # compile the Passport contracts' JavaScript (no proving keys)
+bun run check                        # format, lint, typecheck, unit tests
+bun run build:web
+```
+
+`bun run contracts` downloads the pinned Compact compiler (0.34.0) into `.tools/` and checks its
+SHA-256 first. It builds JavaScript and type declarations only, never proving keys.
+
+To run everything in Docker instead (`node_modules` stays in a Docker volume):
+
+```sh
+scripts/docker-check.sh all          # install, compile, check, build, browser tests
+scripts/docker-check.sh down         # remove the container and volumes
+```

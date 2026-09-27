@@ -1,0 +1,14 @@
+node_modules/
+dist/
+coverage/
+playwright-report/
+test-results/
+.tools/
+vendor/
+bun.lock
+# Vendored byte-for-byte from acedward/passport; never reformat
+packages/core/src/tokens/deployments/*.json
+packages/core/src/passport/vendor/offer-codec.ts
+packages/core/src/passport/vendor/signet-derive.ts
+# Prose and tables are formatted by hand
+*.md

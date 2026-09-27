@@ -22,3 +22,6 @@ test-results/
 # OS and logs
 .DS_Store
 *.log
+
+# Pinned tool downloads (scripts/fetch-compactc.sh)
+.tools/
