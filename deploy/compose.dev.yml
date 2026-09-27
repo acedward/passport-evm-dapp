@@ -1,0 +1,46 @@
+# Local development and testing: the relay and its proof server.
+#
+#   docker compose -f deploy/compose.dev.yml --env-file deploy/.env up -d --build
+#
+# Optional overrides, added with more -f flags:
+#   compose.stack.yml    join a local ledger-9 stack's network (STACK_NETWORK=<project>_default)
+#   compose.keys.yml     mount the read-only key volume (RELAY_KEYS_VOLUME)
+#   compose.secrets.yml  mount the sponsor seed and the Sepolia RPC URL as secret files
+# Tear down with the same files and `down -v`.
+
+name: ${COMPOSE_PROJECT_NAME:-mnbank-dev}
+
+services:
+  relay:
+    build:
+      context: ..
+      dockerfile: deploy/relay.Dockerfile
+    image: mnbank/relay:${IMAGE_TAG:-dev}
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      MIDNIGHT_PROOF_SERVER_URL: ${MIDNIGHT_PROOF_SERVER_URL:-http://proof-server:6300}
+    ports:
+      - 127.0.0.1:${RELAY_HOST_PORT:-18080}:8080
+    depends_on:
+      - proof-server
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  proof-server:
+    # midnightntwrk/proof-server 9.0.0-rc.6 (plan Pins): proves the wallet's DUST spends and every
+    # Passport circuit. A k=18 proof needs about 8 GB of memory.
+    image: midnightntwrk/proof-server@sha256:38a819eacde273f725551fdf90ca7c31ebf3c0ff145f3ed58ee35f92fb7ce95b
+    environment:
+      PORT: '6300'
+    mem_limit: 10g
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped

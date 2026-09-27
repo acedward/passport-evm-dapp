@@ -25,6 +25,7 @@
     "@midnightntwrk/wallet-sdk-shielded": "4.0.0-beta.2",
     "@midnightntwrk/wallet-sdk-unshielded-wallet": "4.0.0-beta.2",
     "@mnbank/core": "workspace:*",
+    "@scure/bip39": "2.0.1",
     "ethers": "6.17.0",
     "hono": "4.13.9",
     "rxjs": "7.8.2",

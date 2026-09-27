@@ -1,0 +1,11 @@
+# Mount the key volume (the compiled contracts with the relay's prover keys, built once) read-only.
+services:
+  relay:
+    environment:
+      MIDNIGHT_MANAGED_PATH: /keys
+    volumes:
+      - relay-keys:/keys:ro
+volumes:
+  relay-keys:
+    external: true
+    name: ${RELAY_KEYS_VOLUME:?set RELAY_KEYS_VOLUME to the key volume's name}
