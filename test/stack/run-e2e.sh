@@ -317,7 +317,7 @@ PY
     -v "$E2E_STATE_DIR/sponsor.seed:/run/secrets/sponsor:ro" -v "$E2E_STATE_DIR/tokens.json:/run/config/tokens.json:ro" \
     -w /app -e BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 \
     -e RELAY_NETWORK=undeployed -e TOKENS_FILE=/run/config/tokens.json \
-    -e MIDNIGHT_MANAGED_PATH="$MANAGED" -e RELAY_KEYS_FINGERPRINT="$KEYS_FINGERPRINT" \
+    -e MIDNIGHT_MANAGED_PATH="$MANAGED" -e RELAY_KEYS_FINGERPRINT="$KEYS_FINGERPRINT" -e RELAY_REQUIRE_KEYS=true \
     -e MIDNIGHT_PROOF_SERVER_URL=http://proof-server-rc6:6300 \
     -e BRIDGE_VAULT_ADDRESS="$vault" \
     -e SPONSOR_ENABLED=true -e SPONSOR_SEED_FILE=/run/secrets/sponsor \
@@ -327,6 +327,10 @@ PY
     "$BUN_IMAGE" bun relay/src/main.ts >/dev/null
   say "relay starting; waiting for the sponsor to sync"
   for _ in $(seq 1 120); do
+    if [[ "$(docker inspect -f '{{.State.Running}}' "$RELAY" 2>/dev/null)" != true ]]; then
+      docker logs "$RELAY" 2>&1 | tail -15 >&2
+      die "the relay stopped (it refuses to start on a missing or mismatched key set)"
+    fi
     if rget http://mnbank-relay:8080/health 2>/dev/null |
       python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin)["sponsor"]["synced"] else 1)' 2>/dev/null; then
       break
