@@ -1,17 +1,30 @@
-// The application shell: brand, wallet connection and the five sections. The layout and styling
-// are deliberately plain; the MN Bank design (P1.5) replaces them once the owner approves the
-// mockup (question Q16). Accounts, Markets and Local data are complete; Transfers and Trade arrive with
-// their lanes.
+// The application shell: the MN Bank masthead (brand, the connected wallet with its Sepolia
+// badge, the Passport account with its "Midnight stagenet" badge), the tab bar, the five
+// sections and the testnet footer, in the owner-approved design (plan P1.5, Q16 A). The pieces
+// come from ./design; this file only wires them to the wallet and the store.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import type { NetworkProfile } from '@mnbank/core';
 
 import { loadSiteConfig, type SiteConfig } from './config.js';
+import {
+  Button,
+  EmptyState,
+  IdentityChip,
+  Masthead,
+  NetworkBadge,
+  Notice,
+  PageHead,
+  SiteFooter,
+  TabNav,
+  shortHex,
+} from './design/index.js';
 import { MarketProvider } from './market/MarketContext.js';
 import { Accounts } from './pages/Accounts.js';
 import { LocalData } from './pages/LocalData.js';
 import { Markets } from './pages/Markets.js';
+import { findAccount } from './passport/records.js';
 import { StoreProvider, useStore } from './store/StoreContext.js';
 import { WalletProvider, useWallet } from './wallet/WalletContext.js';
 
@@ -29,68 +42,117 @@ const sectionFromHash = (): SectionId => {
   return (SECTIONS.find((s) => s.id === h)?.id ?? 'accounts') as SectionId;
 };
 
-function WalletArea() {
+/** The right-hand side of the masthead: who is connected, on which networks. */
+function Identity({ network }: { network: NetworkProfile }) {
   const w = useWallet();
+  const { store, revision } = useStore();
   const [choosing, setChoosing] = useState(false);
+  // The Passport account this wallet has in this browser (read-only; `revision` follows writes).
+  const account = useMemo(
+    () =>
+      store && w.status === 'connected' && w.address
+        ? findAccount(store, { network: network.name, evmAddress: w.address })
+        : null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [store, w.status, w.address, network.name, revision],
+  );
+  const midnight = (
+    <NetworkBadge network="midnight" data-testid="network-name">
+      Midnight {network.name}
+    </NetworkBadge>
+  );
+
   if (w.status === 'connected' && w.address) {
     return (
-      <div className="wallet" data-testid="wallet-connected">
-        <span data-testid="wallet-address" title={w.address}>
-          {w.address.slice(0, 6)}…{w.address.slice(-4)}
-        </span>
-        {w.onRightChain ? (
-          <span className="badge" data-testid="wallet-chain">
-            Sepolia
-          </span>
-        ) : (
-          <button type="button" data-testid="switch-network" onClick={() => void w.switchNetwork()}>
-            Switch to Sepolia
-          </button>
-        )}
-        <button type="button" className="link" onClick={w.disconnect}>
-          Disconnect
-        </button>
-      </div>
+      <>
+        <IdentityChip
+          label="Wallet"
+          data-testid="wallet-connected"
+          value={
+            <span className="id-value" data-testid="wallet-address" title={w.address}>
+              {shortHex(w.address)}
+            </span>
+          }
+          badge={
+            w.onRightChain ? (
+              <NetworkBadge network="sepolia" data-testid="wallet-chain">
+                {network.evm.chainName}
+              </NetworkBadge>
+            ) : (
+              <Button
+                variant="inverse"
+                size="small"
+                data-testid="switch-network"
+                onClick={() => void w.switchNetwork()}
+              >
+                Switch to {network.evm.chainName}
+              </Button>
+            )
+          }
+        >
+          <Button variant="link" onClick={w.disconnect}>
+            Disconnect
+          </Button>
+        </IdentityChip>
+        <IdentityChip
+          label="Passport account"
+          value={
+            account ? (
+              <span className="id-value" title={account.address} data-testid="masthead-account">
+                {shortHex(account.address, 4, 4)}
+              </span>
+            ) : (
+              <span className="id-none">none in this browser</span>
+            )
+          }
+          badge={midnight}
+        />
+      </>
     );
   }
   return (
-    <div className="wallet">
-      <button
-        type="button"
-        data-testid="connect"
-        disabled={w.status === 'connecting'}
-        onClick={() => setChoosing((c) => !c)}
-      >
-        {w.status === 'connecting' ? 'Connecting…' : 'Connect wallet'}
-      </button>
-      {choosing && (
-        <div className="menu" role="menu" data-testid="wallet-menu">
-          {w.options.length === 0 ? (
-            <p>No wallet found in this browser. Install MetaMask or another EVM wallet, then reload.</p>
-          ) : (
-            w.options.map((o) => (
-              <button
-                type="button"
-                role="menuitem"
-                key={o.id}
-                data-testid="wallet-option"
-                onClick={() => {
-                  setChoosing(false);
-                  void w.connect(o);
-                }}
-              >
-                {o.icon && <img src={o.icon} alt="" width={20} height={20} />} {o.name}
-              </button>
-            ))
-          )}
-        </div>
-      )}
-      {w.error && (
-        <p role="alert" className="notice error" data-testid="wallet-error">
-          {w.error}
-        </p>
-      )}
-    </div>
+    <>
+      <IdentityChip label="Network" badge={midnight} />
+      <div className="wallet-area">
+        <Button
+          variant="inverse"
+          data-testid="connect"
+          aria-expanded={choosing}
+          aria-haspopup="menu"
+          disabled={w.status === 'connecting'}
+          onClick={() => setChoosing((c) => !c)}
+        >
+          {w.status === 'connecting' ? 'Connecting…' : 'Connect wallet'}
+        </Button>
+        {choosing && (
+          <div className="wallet-menu" role="menu" aria-label="Choose a wallet" data-testid="wallet-menu">
+            {w.options.length === 0 ? (
+              <p className="small">
+                No wallet found in this browser. Install MetaMask or another EVM wallet, then reload.
+              </p>
+            ) : (
+              <>
+                <p className="wallet-menu-title">Choose a wallet</p>
+                {w.options.map((o) => (
+                  <Button
+                    variant="secondary"
+                    role="menuitem"
+                    key={o.id}
+                    data-testid="wallet-option"
+                    onClick={() => {
+                      setChoosing(false);
+                      void w.connect(o);
+                    }}
+                  >
+                    {o.icon && <img src={o.icon} alt="" width={20} height={20} />} {o.name}
+                  </Button>
+                ))}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -118,35 +180,29 @@ function Shell({ network, config }: { network: NetworkProfile; config: SiteConfi
     return () => window.removeEventListener('hashchange', on);
   }, []);
   const { status } = useStore();
+  const wallet = useWallet();
+  const pending = SECTIONS.find((s) => s.id === section)?.label ?? '';
   return (
-    <>
-      <header className="masthead">
-        <div>
-          <h1>MN Bank</h1>
-          <span className="network" data-testid="network-name">
-            Midnight {network.name} · {network.evm.chainName}
-          </span>
-        </div>
-        <WalletArea />
-      </header>
-      {status !== 'ok' && (
-        <div role="alert" className="notice error" data-testid="storage-banner">
-          This browser is not letting MN Bank keep data, so you cannot open or use an account here.
+    <div className="app">
+      <Masthead>
+        <Identity network={network} />
+      </Masthead>
+      <TabNav items={SECTIONS} current={section} />
+      {(status !== 'ok' || wallet.error) && (
+        <div className="wrap app-banner">
+          {status !== 'ok' && (
+            <Notice tone="danger" role="alert" data-testid="storage-banner">
+              This browser is not letting MN Bank keep data, so you cannot open or use an account here.
+            </Notice>
+          )}
+          {wallet.error && (
+            <Notice tone="danger" role="alert" data-testid="wallet-error">
+              {wallet.error}
+            </Notice>
+          )}
         </div>
       )}
-      <nav aria-label="Sections">
-        {SECTIONS.map((s) => (
-          <a
-            key={s.id}
-            href={`#${s.id}`}
-            aria-current={section === s.id ? 'page' : undefined}
-            data-testid={`tab-${s.id}`}
-          >
-            {s.label}
-          </a>
-        ))}
-      </nav>
-      <main>
+      <main className="wrap">
         {section === 'local' ? (
           <LocalData network={network.name} />
         ) : section === 'accounts' ? (
@@ -155,13 +211,16 @@ function Shell({ network, config }: { network: NetworkProfile; config: SiteConfi
           <Markets />
         ) : (
           <section data-testid={`section-${section}`}>
-            <h2>{SECTIONS.find((s) => s.id === section)?.label}</h2>
-            <p>This section is being built. Your records are under Local data.</p>
+            <PageHead title={pending} />
+            <EmptyState title="Coming soon">
+              This section is being built. Your records are under <a href="#local">Local data</a>.
+            </EmptyState>
           </section>
         )}
       </main>
+      <SiteFooter networkName={`Midnight ${network.name}`} evmName={`Ethereum ${network.evm.chainName}`} />
       <ProfileRecorder network={network.name} />
-    </>
+    </div>
   );
 }
 
@@ -171,8 +230,20 @@ export function App() {
   useEffect(() => {
     loadSiteConfig().then(setConfig, (e: unknown) => setFailed(e instanceof Error ? e.message : 'configuration error'));
   }, []);
-  if (failed) return <p role="alert">MN Bank could not start: {failed}</p>;
-  if (!config) return <p>Loading…</p>;
+  if (failed)
+    return (
+      <div className="wrap app-banner">
+        <Notice tone="danger" role="alert">
+          MN Bank could not start: {failed}
+        </Notice>
+      </div>
+    );
+  if (!config)
+    return (
+      <p className="wrap app-banner muted" role="status">
+        Loading…
+      </p>
+    );
   return (
     <StoreProvider>
       <WalletProvider network={config.network}>

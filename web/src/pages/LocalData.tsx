@@ -1,9 +1,24 @@
 // The Local data tab (spec US4, FR-004, Q11): every record the bank keeps in this browser, with
-// secrets masked until revealed, and Export, Import and CLEAR ALL.
+// secrets masked until revealed, and Export, Import and CLEAR ALL. Styled with the MN Bank design
+// system (plan P1.5): a ruled record table that stacks on a phone, and the CLEAR ALL dialog with
+// "Export first" and a typed confirmation.
 
 import { useMemo, useRef, useState, type ChangeEvent } from 'react';
 
+import {
+  Button,
+  ButtonRow,
+  Cell,
+  EmptyState,
+  Notice,
+  PageHead,
+  Panel,
+  StatementTable,
+  Sub,
+  TypedConfirmDialog,
+} from '../design/index.js';
 import { useStore } from '../store/StoreContext.js';
+import { SCHEMA_VERSION, STORE_PREFIX } from '../store/schema.js';
 import { ImportError, type RecordView } from '../store/store.js';
 import { useWallet } from '../wallet/WalletContext.js';
 
@@ -12,6 +27,7 @@ export const CLEAR_ALL_PHRASE = 'CLEAR ALL';
 const short = (s: string, head = 6, tail = 4) =>
   s.length <= head + tail + 1 ? s : `${s.slice(0, head)}…${s.slice(-tail)}`;
 const when = (ms: number | null) => (ms === null ? '—' : new Date(ms).toISOString().replace('T', ' ').slice(0, 19));
+const size = (bytes: number) => (bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`);
 
 function download(name: string, text: string): void {
   const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
@@ -30,7 +46,6 @@ export function LocalData({ network }: { network: string }) {
   const [revealed, setRevealed] = useState<ReadonlySet<string>>(new Set());
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
   const [confirming, setConfirming] = useState(false);
-  const [phrase, setPhrase] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
 
   // `revision` changes on every write here or in another tab.
@@ -50,6 +65,7 @@ export function LocalData({ network }: { network: string }) {
       .filter((r) => !r.parsed.scope.global)
       .map((r) => (r.parsed.scope.global ? '' : `${r.parsed.scope.network}/${r.parsed.scope.evmAddress}`)),
   );
+  const totalBytes = records.reduce((n, r) => n + r.bytes, 0);
 
   const exportMine = () => {
     if (!store || !scope) return;
@@ -92,10 +108,9 @@ export function LocalData({ network }: { network: string }) {
   };
 
   const clearAll = () => {
-    if (!store || phrase !== CLEAR_ALL_PHRASE) return;
+    if (!store) return;
     const n = store.clearAll();
     setConfirming(false);
-    setPhrase('');
     setRevealed(new Set());
     setMessage({ kind: 'ok', text: `Removed ${n} keys. MN Bank keeps nothing in this browser now.` });
   };
@@ -110,176 +125,188 @@ export function LocalData({ network }: { network: string }) {
 
   return (
     <section aria-labelledby="local-data-title" data-testid="local-data">
-      <h2 id="local-data-title">Local data</h2>
-      <p>
-        Everything MN Bank keeps about you stays in this browser: your account, its encryption secret, your coins,
-        transfers and offers. The bank's servers keep none of it. Without this data your account's funds cannot be
-        spent, so export it and keep the file safe.
-      </p>
+      <PageHead
+        eyebrow="Your records"
+        title="Local data"
+        titleId="local-data-title"
+        lede="Everything MN Bank keeps about you stays in this browser: your account, its encryption secret, your coins, transfers and offers. The bank's servers keep none of it. Without this data your account's funds cannot be spent, so export it and keep the file safe."
+      />
 
       {status !== 'ok' && (
-        <div role="alert" className="notice error" data-testid="storage-blocked">
+        <Notice tone="danger" role="alert" className="panel-intro" data-testid="storage-blocked">
           {status === 'full'
             ? 'This browser has no room left for MN Bank data. Free some site data, then reload.'
             : 'This browser is not letting MN Bank keep data (a private window, or site data is blocked). You cannot open or use an account here.'}
-        </div>
+        </Notice>
       )}
       {store?.readOnly && (
-        <div role="alert" className="notice error" data-testid="store-read-only">
+        <Notice tone="danger" role="alert" className="panel-intro" data-testid="store-read-only">
           This browser holds data from a newer version of MN Bank. This page will not change it.
-        </div>
+        </Notice>
       )}
-
-      <div className="actions">
-        <button
-          type="button"
-          data-testid="export"
-          onClick={exportMine}
-          disabled={!store || !scope || mine.length === 0}
-        >
-          Export this wallet's data
-        </button>
-        <button
-          type="button"
-          data-testid="import"
-          onClick={() => fileInput.current?.click()}
-          disabled={!store || !scope}
-        >
-          Import
-        </button>
-        <input
-          ref={fileInput}
-          type="file"
-          accept="application/json,.json"
-          hidden
-          data-testid="import-file"
-          onChange={(e) => void onImport(e)}
-        />
-        <button
-          type="button"
-          className="danger"
-          data-testid="clear-all"
-          onClick={() => setConfirming(true)}
-          disabled={!store || records.length === 0}
-        >
-          CLEAR ALL
-        </button>
-      </div>
-      {!scope && store && <p className="hint">Connect your wallet to export or import its data.</p>}
       {message && (
-        <p role="status" className={`notice ${message.kind}`} data-testid="local-message">
+        <Notice
+          tone={message.kind === 'error' ? 'danger' : 'success'}
+          role="status"
+          className="panel-intro"
+          data-testid="local-message"
+        >
           {message.text}
-        </p>
+        </Notice>
       )}
 
-      {records.length === 0 ? (
-        <p data-testid="records-empty">MN Bank keeps nothing in this browser.</p>
-      ) : (
-        <div className="table-wrap">
-          <table data-testid="records">
-            <thead>
-              <tr>
-                <th scope="col">Network</th>
-                <th scope="col">Wallet</th>
-                <th scope="col">Account</th>
-                <th scope="col">Record</th>
-                <th scope="col">Size</th>
-                <th scope="col">Updated (UTC)</th>
-                <th scope="col">Value</th>
-              </tr>
-            </thead>
-            <tbody>
-              {records.map((r) => {
-                const s = r.parsed.scope;
-                const value = r.record ? JSON.stringify(r.record.data) : '(unreadable)';
-                const shown = !r.sensitive || revealed.has(r.key);
-                return (
-                  <tr key={r.key} data-testid="record-row" data-kind={r.parsed.kind} data-key={r.key}>
-                    <td>{s.global ? 'all' : s.network}</td>
-                    <td title={s.global ? undefined : s.evmAddress}>{s.global ? 'all' : short(s.evmAddress)}</td>
-                    <td title={s.global || !s.account ? undefined : s.account}>
-                      {s.global || !s.account ? '—' : short(s.account, 8, 6)}
-                    </td>
-                    <td>
+      <Panel>
+        <p className="ns-line">
+          Stored under <span className="mono">{STORE_PREFIX}v1/…</span> · schema version {SCHEMA_VERSION} ·{' '}
+          {records.length} {records.length === 1 ? 'record' : 'records'} ·{' '}
+          <span className="num">{size(totalBytes)}</span>
+          {wallets.size > 1 ? ` · ${wallets.size} wallets` : ''}
+        </p>
+
+        {records.length === 0 ? (
+          <EmptyState data-testid="records-empty" title="Nothing stored">
+            MN Bank keeps nothing in this browser.
+          </EmptyState>
+        ) : (
+          <StatementTable
+            data-testid="records"
+            caption="Records kept in this browser"
+            columns={[
+              { label: 'Record' },
+              { label: 'Contents' },
+              { label: 'Size', align: 'right' },
+              { label: 'Updated', sub: 'UTC', align: 'right' },
+            ]}
+          >
+            {records.map((r) => {
+              const s = r.parsed.scope;
+              const value = r.record ? JSON.stringify(r.record.data) : '(unreadable)';
+              const shown = !r.sensitive || revealed.has(r.key);
+              return (
+                <tr key={r.key} data-testid="record-row" data-kind={r.parsed.kind} data-key={r.key}>
+                  <Cell block>
+                    <strong>
                       {r.parsed.kind}
                       {r.parsed.id ? ` / ${r.parsed.id}` : ''}
-                    </td>
-                    <td>{r.bytes} B</td>
-                    <td>{when(r.updatedAt)}</td>
-                    <td className="value">
+                    </strong>
+                    <Sub multiline>
+                      {s.global ? (
+                        'all networks and wallets'
+                      ) : (
+                        <>
+                          {s.network} · wallet <span title={s.evmAddress}>{short(s.evmAddress)}</span>
+                          {s.account ? (
+                            <>
+                              {' '}
+                              · account <span title={s.account}>{short(s.account, 8, 6)}</span>
+                            </>
+                          ) : null}
+                        </>
+                      )}
+                    </Sub>
+                  </Cell>
+                  <Cell label="Contents">
+                    <span className="record-contents">
                       {shown ? (
                         <code data-testid="record-value">{value.length > 240 ? `${value.slice(0, 240)}…` : value}</code>
                       ) : (
-                        <span data-testid="record-masked">••••••••</span>
+                        <span className="secret-mask" data-testid="record-masked">
+                          <span aria-hidden="true">••••••••••••••••</span>
+                          <span className="sr-only">hidden until you reveal it</span>
+                        </span>
                       )}
                       {r.sensitive && (
-                        <button type="button" className="link" data-testid="reveal" onClick={() => toggle(r.key)}>
+                        <Button
+                          variant="secondary"
+                          size="small"
+                          data-testid="reveal"
+                          aria-pressed={shown}
+                          onClick={() => toggle(r.key)}
+                        >
                           {shown ? 'Hide' : 'Reveal'}
-                        </button>
+                        </Button>
                       )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+                    </span>
+                  </Cell>
+                  <Cell label="Size" align="right" num>
+                    {r.bytes} B
+                  </Cell>
+                  <Cell label="Updated" align="right" num>
+                    {when(r.updatedAt)}
+                  </Cell>
+                </tr>
+              );
+            })}
+          </StatementTable>
+        )}
 
-      {confirming && (
-        <div className="overlay">
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="clear-title"
-            className="dialog"
-            data-testid="clear-dialog"
-          >
-            <h3 id="clear-title">Clear all MN Bank data from this browser?</h3>
-            <p>
-              This removes all {records.length} records MN Bank keeps here, for {wallets.size} wallet
-              {wallets.size === 1 ? '' : 's'}. Your account's coins can only be spent with this data: unless you have a
-              recent export, export it first.
+        <div className="danger-zone">
+          <div>
+            <ButtonRow>
+              <Button
+                variant="secondary"
+                data-testid="export"
+                onClick={exportMine}
+                disabled={!store || !scope || mine.length === 0}
+              >
+                Export this wallet&apos;s data
+              </Button>
+              <Button
+                variant="secondary"
+                data-testid="import"
+                onClick={() => fileInput.current?.click()}
+                disabled={!store || !scope}
+              >
+                Import
+              </Button>
+              <input
+                ref={fileInput}
+                type="file"
+                accept="application/json,.json"
+                hidden
+                data-testid="import-file"
+                onChange={(e) => void onImport(e)}
+              />
+            </ButtonRow>
+            <p className="explain">
+              {scope
+                ? `Export saves this wallet's records as a JSON file, including the encryption secret: keep it as safe as a bank card. Import accepts only a file for ${network} and this wallet.`
+                : 'Connect your wallet to export or import its data.'}
             </p>
-            {scope && mine.length > 0 && (
-              <button type="button" data-testid="clear-export-first" onClick={exportMine}>
-                Export this wallet's data first
-              </button>
-            )}
-            <label htmlFor="clear-phrase">
-              Type <strong>{CLEAR_ALL_PHRASE}</strong> to confirm
-            </label>
-            <input
-              id="clear-phrase"
-              data-testid="clear-confirm-input"
-              autoComplete="off"
-              value={phrase}
-              onChange={(e) => setPhrase(e.target.value)}
-            />
-            <div className="actions">
-              <button
-                type="button"
-                className="danger"
-                data-testid="clear-confirm"
-                disabled={phrase !== CLEAR_ALL_PHRASE}
-                onClick={clearAll}
-              >
-                Clear all data
-              </button>
-              <button
-                type="button"
-                data-testid="clear-cancel"
-                onClick={() => {
-                  setConfirming(false);
-                  setPhrase('');
-                }}
-              >
-                Cancel
-              </button>
-            </div>
           </div>
+          <Button
+            variant="danger"
+            data-testid="clear-all"
+            onClick={() => setConfirming(true)}
+            disabled={!store || records.length === 0}
+          >
+            CLEAR ALL
+          </Button>
         </div>
-      )}
+      </Panel>
+
+      <TypedConfirmDialog
+        open={confirming}
+        title="Clear all MN Bank data from this browser?"
+        phrase={CLEAR_ALL_PHRASE}
+        testIdPrefix="clear"
+        warning={
+          <>
+            <strong>Without an export you cannot spend these funds again.</strong> Your account&apos;s coins can only be
+            spent with this data: unless you have a recent export, export it first.
+          </>
+        }
+        onExportFirst={scope && mine.length > 0 ? exportMine : undefined}
+        exportLabel="Export this wallet's data first"
+        confirmLabel="Clear all data"
+        onConfirm={clearAll}
+        onCancel={() => setConfirming(false)}
+      >
+        <p>
+          This removes all {records.length} records MN Bank keeps here, for {wallets.size} wallet
+          {wallets.size === 1 ? '' : 's'}. The bank&apos;s servers have no copy.
+        </p>
+      </TypedConfirmDialog>
     </section>
   );
 }
