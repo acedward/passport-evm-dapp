@@ -62,3 +62,13 @@ condition = "AND"
 paths = ['''(^|/)packages/core/test/fixtures/kernel/staging-[0-9-]+/known-tokens\.json$''']
 regexTarget = "match"
 regexes = ['''^token_color"''']
+
+# The web bundle carries the onchain-runtime's wasm-bindgen glue (the browser-safe Passport
+# client, plan P0.4): its generated import names (`__wbg_<name>_<16 hex>`) and one exported
+# function name are code identifiers, not secrets. Scoped to that rule, the built bundle AND those
+# exact shapes only.
+[[rules.allowlists]]
+condition = "AND"
+paths = ['''(^|/)web/dist/assets/[^/]+\.js(\.map)?$''']
+regexTarget = "secret"
+regexes = ['''^__wbg_[A-Za-z0-9_]+_[0-9a-f]{16}$''', '''^signingKeyFromBip340$''']
