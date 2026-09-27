@@ -72,3 +72,12 @@ condition = "AND"
 paths = ['''(^|/)web/dist/assets/[^/]+\.js(\.map)?$''']
 regexTarget = "secret"
 regexes = ['''^__wbg_[A-Za-z0-9_]+_[0-9a-f]{16}$''', '''^signingKeyFromBip340$''']
+
+# deploy/.env.example pins the relay's key-set fingerprint: a SHA-256 over PUBLIC verifier keys,
+# which the generic rule flags because the variable's name holds "KEY". Scoped to that rule, that
+# file AND that exact assignment.
+[[rules.allowlists]]
+condition = "AND"
+paths = ['''(^|/)deploy/\.env\.example$''']
+regexTarget = "match"
+regexes = ['''^RELAY_KEYS_FINGERPRINT=[0-9a-f]{64}$''']
