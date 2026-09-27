@@ -54,3 +54,11 @@ condition = "AND"
 paths = ['''(^|/)packages/core/src/tokens/deployments/[a-z0-9-]+\.json$''']
 regexTarget = "match"
 regexes = ['''^(?:mpcResponseKey|mpcRootPublicKey|deployerPublicKey)"''']
+
+# The staging kernel's GET /v1/known-tokens, captured verbatim (a test fixture): the values the
+# rule flags there are PUBLIC token colours. Scoped to that rule, that capture AND that field.
+[[rules.allowlists]]
+condition = "AND"
+paths = ['''(^|/)packages/core/test/fixtures/kernel/staging-[0-9-]+/known-tokens\.json$''']
+regexTarget = "match"
+regexes = ['''^token_color"''']
