@@ -31,6 +31,17 @@
 // REFUND. A withdrawal attested `never-executed` settles with `bridge_withdraw_refund` (the coin
 // is minted back); one attested `returned-false` settles with `bridge_withdraw_complete`, which
 // re-mints it too. A deposit attested `returned-false` closes with nothing minted.
+//
+// A NEVER-EXECUTED DEPOSIT (plan P4-A, Q21 A). The account has no settle for the 5-byte
+// never-executed marker; the vault's permissionless `abandonDeposit` closes it (nothing minted,
+// the tokens stay at the deposit address, where the account's next deposit can sweep them). The
+// job that sees the marker calls it at once, so the account is never left blocked.
+//
+// STALE REQUESTS (Q21 A). A request whose owner never comes back (the relay restarted and the page
+// never resumed it) is closed by ./stale.ts through `closeStale`: a withdrawal runs the resumable
+// relayer loop and the settle pinned to the account in the vault's settle view; a deposit already
+// attested never-executed is abandoned. One request is driven by one run at a time (`running`): a
+// resume that finds the bank already completing it waits for that run and reports its outcome.
 
 import {
   BRIDGE_ERRORS,
@@ -39,6 +50,7 @@ import {
   maxGasCostWei,
   evmTxParamsJson,
   withdrawPreflight,
+  type BridgeClosedResponse,
   type BridgeDepositPayload,
   type BridgeKind,
   type BridgeQuote,
@@ -53,7 +65,7 @@ import {
 
 import type { Logger } from '../log.js';
 import { PublicError, type JobContext, type JobExecutor } from '../queue/jobs.js';
-import type { BridgeBackend, RelayOutcome, RelayProgress, SettleCircuit, StartAuth } from './backend.js';
+import type { Attestation, BridgeBackend, RelayOutcome, RelayProgress, SettleCircuit, StartAuth } from './backend.js';
 import {
   MPC_SIGNATURE_BUDGET_MS,
   RequestMatchError,
@@ -92,23 +104,130 @@ export interface BridgeServiceDeps {
   isDevice?: (account: string, signer: string) => Promise<boolean>;
   log: Logger;
   now?: () => number;
+  /** How long a finished request's outcome is remembered for GET /v1/bridge/closed (ms). */
+  closedTtlMs?: number;
 }
+
+/** Called right before the sponsor pays for closing somebody else's request (a settle or an
+ *  `abandonDeposit`); throws a PublicError to refuse (the stale closer's budget, Q21 A). */
+export type PermitSpend = (circuit: SettleCircuit | 'abandonDeposit') => void;
+
+/** What one stale-request close did. */
+export type StaleCloseOutcome =
+  { outcome: 'closed'; result: BridgeResult } | { outcome: 'gone' } | { outcome: 'skipped'; reason: string };
 
 interface LaneNonce {
   signedNonce: bigint;
   /** The request's Sepolia transaction was broadcast (its nonce is spent or in the mempool). */
   broadcast: boolean;
+  /** Set when a stale close recorded it (from the MPC's signature), so only that close clears it. */
+  closer?: string;
 }
+
+interface ClosedEntry {
+  /** What the public route shows. */
+  response: BridgeClosedResponse;
+  /** The whole outcome, coin included: only a resume by a device of the account gets it. */
+  result: BridgeResult;
+  expiresAtMs: number;
+}
+
+/** One run of a request from its relayer loop to its settle. */
+interface DriveInput {
+  kind: BridgeKind;
+  account: string;
+  requestId: string;
+  startedAtMs: number;
+  startTx: string | null;
+  change: BridgeResult['change'];
+  laneKey: string | null;
+  resumed: boolean;
+  closedBy: 'owner' | 'relay';
+  /** A resume waits for a run of the same request already in progress. */
+  join: boolean;
+  /** Asked before the sponsor pays for a stale close (Q21 A); absent for the owner's own jobs. */
+  permitSpend?: PermitSpend;
+}
+
+const MAX_CLOSED_ENTRIES = 2_000;
+const DAY_MS = 86_400_000;
 
 export class BridgeService {
   /** The nonce the running request of each lane signed ("withdrawal" or "deposit:<account>"). */
   private readonly laneNonces = new Map<string, LaneNonce>();
-  /** Vault request ids a job of this relay is driving right now (a second resume is refused). */
-  private readonly active = new Set<string>();
+  /** Vault request ids a job of this relay is driving right now, with the run's outcome (a resume
+   *  of one waits for it; a second start of the same id is refused). */
+  private readonly running = new Map<string, Promise<BridgeResult>>();
+  /** Recently finished requests (GET /v1/bridge/closed), public facts only. */
+  private readonly closed = new Map<string, ClosedEntry>();
+  /** The MPC as this relay saw it (health, plan P4-A). */
+  private readonly mpcSeen: { lastSignatureAfterMs: number | null; timeouts: number[] } = {
+    lastSignatureAfterMs: null,
+    timeouts: [],
+  };
   private readonly now: () => number;
 
   constructor(private readonly deps: BridgeServiceDeps) {
     this.now = deps.now ?? Date.now;
+  }
+
+  /** Whether a job of this relay is driving `requestId` now. */
+  isDriving(requestId: string): boolean {
+    return this.running.has(normaliseHex(requestId));
+  }
+
+  /** How a request this relay finished recently ended, or null (unknown, or forgotten). */
+  closedOutcome(requestId: string): BridgeClosedResponse | null {
+    const e = this.closedEntry(requestId);
+    return e ? { ...e.response } : null;
+  }
+
+  private closedEntry(requestId: string): ClosedEntry | null {
+    const id = normaliseHex(requestId);
+    const e = this.closed.get(id);
+    if (!e) return null;
+    if (e.expiresAtMs <= this.now()) {
+      this.closed.delete(id);
+      return null;
+    }
+    return e;
+  }
+
+  /** The MPC's recent behaviour, for /health. */
+  mpcStatus(): { lastSignatureAfterSeconds: number | null; timeouts24h: number; inFlight: number } {
+    const since = this.now() - DAY_MS;
+    this.mpcSeen.timeouts = this.mpcSeen.timeouts.filter((t) => t > since);
+    return {
+      lastSignatureAfterSeconds:
+        this.mpcSeen.lastSignatureAfterMs === null ? null : Math.round(this.mpcSeen.lastSignatureAfterMs / 1000),
+      timeouts24h: this.mpcSeen.timeouts.length,
+      inFlight: this.running.size,
+    };
+  }
+
+  private remember(r: BridgeResult): void {
+    const now = this.now();
+    for (const [id, e] of this.closed) if (e.expiresAtMs <= now) this.closed.delete(id);
+    while (this.closed.size >= MAX_CLOSED_ENTRIES) {
+      const oldest = this.closed.keys().next().value;
+      if (oldest === undefined) break;
+      this.closed.delete(oldest);
+    }
+    this.closed.set(r.requestId, {
+      expiresAtMs: now + (this.deps.closedTtlMs ?? DAY_MS),
+      result: r,
+      response: {
+        requestId: r.requestId,
+        kind: r.kind,
+        closedAt: Math.floor(now / 1000),
+        closedBy: r.closedBy ?? 'owner',
+        attested: r.attested,
+        settleCircuit: r.settleCircuit,
+        settleTx: r.settleTx,
+        evmTxHash: r.evmTxHash,
+        minted: r.coin !== null,
+      },
+    });
   }
 
   private backend(): BridgeBackend {
@@ -297,6 +416,8 @@ export class BridgeService {
         change: null,
         laneKey,
         resumed: false,
+        closedBy: 'owner',
+        join: false,
       });
     } finally {
       this.laneNonces.delete(laneKey);
@@ -384,6 +505,8 @@ export class BridgeService {
         change: start.change,
         laneKey,
         resumed: false,
+        closedBy: 'owner',
+        join: false,
       });
     } finally {
       this.laneNonces.delete(laneKey);
@@ -395,8 +518,27 @@ export class BridgeService {
   private async runResume(account: string, body: BridgeResumePayload, ctx: JobContext): Promise<BridgeResult> {
     const be = this.backend();
     const requestId = normaliseHex(body.requestId);
+    // The bank may be completing it right now (a stale close, or another resume): wait for that run.
+    const inFlight = this.running.get(requestId);
+    if (inFlight) {
+      const r = await this.join(ctx, requestId, inFlight);
+      if (r.account !== account)
+        throw new PublicError(BRIDGE_ERRORS.notOpen, 'this request does not belong to this account');
+      return r;
+    }
     const view = await be.settleView(body.kind, requestId);
     if (!view) {
+      const done = this.closedEntry(requestId);
+      if (done && done.result.kind === body.kind && done.result.account === account) {
+        // Closed by this relay already (for example as a stale request, Q21 A): report how it ended.
+        ctx.stage('already-closed', {
+          requestId,
+          circuit: done.result.settleCircuit,
+          tx: done.result.settleTx,
+          by: done.result.closedBy ?? 'owner',
+        });
+        return { ...done.result };
+      }
       throw new PublicError(
         BRIDGE_ERRORS.notOpen,
         'the vault holds no open request with this id: it has already been settled (refresh your balances)',
@@ -415,7 +557,72 @@ export class BridgeService {
       change: null,
       laneKey: null,
       resumed: true,
+      closedBy: 'owner',
+      join: true,
     });
+  }
+
+  // ── Stale requests (plan P4-A, Q21 A) ──────────────────────────────────────
+
+  /**
+   * Close a request its owner left open, if it is an account's and there is something safe to do:
+   *   - a WITHDRAWAL: the resumable relayer loop, then the permissionless settle, whose mint (a
+   *     refund) goes to the account the vault's settle view names: nothing can be redirected;
+   *   - a DEPOSIT already attested never-executed: the vault's permissionless `abandonDeposit`
+   *     (nothing is minted or moved). Any other deposit is its owner's to resume: skipped.
+   * `permitSpend` is asked right before the sponsor pays (the closer's budget).
+   */
+  async closeStale(
+    input: { kind: BridgeKind; requestId: string },
+    ctx: JobContext,
+    permitSpend: PermitSpend,
+  ): Promise<StaleCloseOutcome> {
+    const be = this.backend();
+    const requestId = normaliseHex(input.requestId);
+    if (this.running.has(requestId)) return { outcome: 'skipped', reason: 'a job of this relay is driving it' };
+    const view = await be.settleView(input.kind, requestId);
+    if (!view) return { outcome: 'gone' };
+    if (view.account === null) return { outcome: 'skipped', reason: 'its recipient is not a contract' };
+    const account = view.account;
+
+    if (input.kind === 'deposit') {
+      const att = await be.attestation('deposit', requestId);
+      if (!att) return { outcome: 'skipped', reason: 'not attested yet' };
+      if (att.kind !== 'never-executed')
+        return { outcome: 'skipped', reason: `attested ${att.kind}: its owner completes it` };
+      const result = await this.exclusive(ctx, requestId, false, () =>
+        this.abandon(be, ctx, {
+          account,
+          requestId,
+          attestation: att,
+          startTx: null,
+          evmTxHash: null,
+          closedBy: 'relay',
+          permitSpend,
+        }),
+      );
+      return { outcome: 'closed', result };
+    }
+
+    ctx.stage('resumed', { requestId, kind: 'withdraw', by: 'bank' });
+    try {
+      const result = await this.finish(be, ctx, {
+        kind: 'withdraw',
+        account,
+        requestId,
+        startedAtMs: this.now(),
+        startTx: null,
+        change: null,
+        laneKey: 'withdrawal',
+        resumed: true,
+        closedBy: 'relay',
+        join: false,
+        permitSpend,
+      });
+      return { outcome: 'closed', result };
+    } finally {
+      if (this.laneNonces.get('withdrawal')?.closer === requestId) this.laneNonces.delete('withdrawal');
+    }
   }
 
   // ── Shared: the request id, the relayer loop and the settle ────────────────
@@ -445,104 +652,176 @@ export class BridgeService {
     );
   }
 
-  private async finish(
-    be: BridgeBackend,
+  /** Run `fn` as THE run of `requestId` (one at a time); a caller that may join waits for a run
+   *  already in progress instead. Every finished run is remembered for GET /v1/bridge/closed. */
+  private async exclusive(
     ctx: JobContext,
-    r: {
-      kind: BridgeKind;
-      account: string;
-      requestId: string;
-      startedAtMs: number;
-      startTx: string | null;
-      change: BridgeResult['change'];
-      laneKey: string | null;
-      resumed: boolean;
-    },
+    requestId: string,
+    join: boolean,
+    fn: () => Promise<BridgeResult>,
   ): Promise<BridgeResult> {
-    if (this.active.has(r.requestId)) {
-      throw new PublicError(BRIDGE_ERRORS.inProgress, 'this transfer is already being processed');
+    const existing = this.running.get(requestId);
+    if (existing) {
+      if (!join) throw new PublicError(BRIDGE_ERRORS.inProgress, 'this transfer is already being processed');
+      return this.join(ctx, requestId, existing);
     }
-    this.active.add(r.requestId);
+    const run = fn();
+    this.running.set(requestId, run);
     try {
-      const expectedSigner = r.kind === 'deposit' ? be.depositAddress(r.account) : be.vaultEvmAddress;
-      // The stop rule counts from the START; a resume (the MPC may still sign late) gets a full budget.
-      const signatureTimeoutMs = r.resumed
-        ? MPC_SIGNATURE_BUDGET_MS
-        : Math.max(60_000, remainingSignatureBudgetMs(r.startedAtMs, this.now()));
-      let relay: RelayOutcome;
-      try {
-        relay = await be.relay({
-          kind: r.kind,
-          requestId: r.requestId,
-          expectedSigner,
-          signatureTimeoutMs,
-          onProgress: (p) => this.onProgress(ctx, r.laneKey, p),
-        });
-      } catch (e) {
-        this.deps.log.warn('bridge relay failed', { requestId: r.requestId, error: e });
-        if (isSignatureTimeout(e)) {
-          throw new PublicError(
-            BRIDGE_ERRORS.mpcTimeout,
-            `the MPC has not signed request ${r.requestId} within 20 minutes; nothing moved on Sepolia. Resume it later, or ask the bank`,
-          );
-        }
-        throw new PublicError(
-          BRIDGE_ERRORS.attestationTimeout,
-          `the bank lost track of request ${r.requestId} while waiting for Sepolia and the MPC; your transfer is safe: resume it`,
-        );
-      }
-      ctx.stage('attested', {
-        kind: relay.kind,
-        ...(relay.evmTxHash ? { evmTx: relay.evmTxHash } : {}),
-        signatureAfterS: String(Math.round(relay.signatureAfterMs / 1000)),
-        attestationAfterS: String(Math.round(relay.attestationAfterMs / 1000)),
-      });
-
-      let circuit: SettleCircuit;
-      if (r.kind === 'deposit') {
-        if (relay.kind === 'never-executed') {
-          throw new PublicError(
-            'deposit-never-executed',
-            `the sweep of request ${r.requestId} never ran on Sepolia; your tokens are still at the deposit address. The request must be abandoned in the vault before this account deposits again (ask the bank)`,
-          );
-        }
-        circuit = 'bridge_deposit_complete';
-      } else {
-        circuit = relay.kind === 'never-executed' ? 'bridge_withdraw_refund' : 'bridge_withdraw_complete';
-      }
-      const settle = await ctx.prove(() => {
-        ctx.stage('settling', { circuit });
-        return be.settle({ kind: r.kind, circuit, account: r.account, requestId: r.requestId, relay });
-      });
-      const facts = await be.txFacts(settle.txId).catch(() => null);
-      ctx.stage('settled', {
-        tx: settle.txId,
-        ...(facts?.hash ? { txHash: facts.hash } : {}),
-        circuit,
-        ...(settle.coin ? { coinValue: settle.coin.value } : {}),
-      });
-      return {
-        kind: r.kind,
-        account: r.account,
-        requestId: r.requestId,
-        startTx: r.startTx,
-        attested: relay.kind,
-        evmTxHash: relay.evmTxHash ?? null,
-        settleTx: settle.txId,
-        settleCircuit: circuit,
-        coin: settle.coin,
-        change: r.change,
-        entryMatchesCoin: settle.entryMatchesCoin,
-      };
+      const r = await run;
+      this.remember(r);
+      return r;
     } finally {
-      this.active.delete(r.requestId);
+      this.running.delete(requestId);
     }
   }
 
-  private onProgress(ctx: JobContext, laneKey: string | null, p: RelayProgress): void {
+  private async join(ctx: JobContext, requestId: string, run: Promise<BridgeResult>): Promise<BridgeResult> {
+    ctx.stage('joined', { requestId });
+    return { ...(await run) };
+  }
+
+  private async finish(be: BridgeBackend, ctx: JobContext, r: DriveInput): Promise<BridgeResult> {
+    return this.exclusive(ctx, r.requestId, r.join, () => this.drive(be, ctx, r));
+  }
+
+  private async drive(be: BridgeBackend, ctx: JobContext, r: DriveInput): Promise<BridgeResult> {
+    const expectedSigner = r.kind === 'deposit' ? be.depositAddress(r.account) : be.vaultEvmAddress;
+    // The stop rule counts from the START; a resume (the MPC may still sign late) gets a full budget.
+    const signatureTimeoutMs = r.resumed
+      ? MPC_SIGNATURE_BUDGET_MS
+      : Math.max(60_000, remainingSignatureBudgetMs(r.startedAtMs, this.now()));
+    let relay: RelayOutcome;
+    try {
+      relay = await be.relay({
+        kind: r.kind,
+        requestId: r.requestId,
+        expectedSigner,
+        signatureTimeoutMs,
+        onProgress: (p) => this.onProgress(ctx, r.laneKey, p, r.closedBy === 'relay' ? r.requestId : undefined),
+      });
+    } catch (e) {
+      this.deps.log.warn('bridge relay failed', { requestId: r.requestId, error: e });
+      if (isSignatureTimeout(e)) {
+        this.mpcSeen.timeouts.push(this.now());
+        throw new PublicError(
+          BRIDGE_ERRORS.mpcTimeout,
+          `the MPC has not signed request ${r.requestId} within 20 minutes; nothing moved on Sepolia. Resume it later, or ask the bank`,
+        );
+      }
+      throw new PublicError(
+        BRIDGE_ERRORS.attestationTimeout,
+        `the bank lost track of request ${r.requestId} while waiting for Sepolia and the MPC; your transfer is safe: resume it`,
+      );
+    }
+    ctx.stage('attested', {
+      kind: relay.kind,
+      ...(relay.evmTxHash ? { evmTx: relay.evmTxHash } : {}),
+      signatureAfterS: String(Math.round(relay.signatureAfterMs / 1000)),
+      attestationAfterS: String(Math.round(relay.attestationAfterMs / 1000)),
+    });
+
+    if (r.kind === 'deposit' && relay.kind === 'never-executed') {
+      // The account has no settle for the never-executed marker; the vault's abandonDeposit closes
+      // the request so this account can deposit again (Q21 A). The tokens stay at the address.
+      return this.abandon(be, ctx, {
+        account: r.account,
+        requestId: r.requestId,
+        attestation: { kind: relay.kind, event: relay.event, serializedOutput: relay.serializedOutput },
+        startTx: r.startTx,
+        evmTxHash: relay.evmTxHash ?? null,
+        closedBy: r.closedBy,
+        ...(r.permitSpend ? { permitSpend: r.permitSpend } : {}),
+      });
+    }
+    const circuit: SettleCircuit =
+      r.kind === 'deposit'
+        ? 'bridge_deposit_complete'
+        : relay.kind === 'never-executed'
+          ? 'bridge_withdraw_refund'
+          : 'bridge_withdraw_complete';
+    r.permitSpend?.(circuit);
+    const settle = await ctx.prove(() => {
+      ctx.stage('settling', { circuit });
+      return be.settle({ kind: r.kind, circuit, account: r.account, requestId: r.requestId, relay });
+    });
+    const facts = await be.txFacts(settle.txId).catch(() => null);
+    ctx.stage('settled', {
+      tx: settle.txId,
+      ...(facts?.hash ? { txHash: facts.hash } : {}),
+      circuit,
+      ...(settle.coin ? { coinValue: settle.coin.value } : {}),
+      ...(r.closedBy === 'relay' ? { by: 'bank' } : {}),
+    });
+    return {
+      kind: r.kind,
+      account: r.account,
+      requestId: r.requestId,
+      startTx: r.startTx,
+      attested: relay.kind,
+      evmTxHash: relay.evmTxHash ?? null,
+      settleTx: settle.txId,
+      settleCircuit: circuit,
+      coin: settle.coin,
+      change: r.change,
+      entryMatchesCoin: settle.entryMatchesCoin,
+      closedBy: r.closedBy,
+    };
+  }
+
+  /** `abandonDeposit` for a deposit attested never-executed (the vault's, permissionless). */
+  private async abandon(
+    be: BridgeBackend,
+    ctx: JobContext,
+    a: {
+      account: string;
+      requestId: string;
+      attestation: Attestation;
+      startTx: string | null;
+      evmTxHash: string | null;
+      closedBy: 'owner' | 'relay';
+      permitSpend?: PermitSpend;
+    },
+  ): Promise<BridgeResult> {
+    a.permitSpend?.('abandonDeposit');
+    const done = await ctx.prove(() => {
+      ctx.stage('abandoning', { circuit: 'abandonDeposit', requestId: a.requestId });
+      return be.abandonDeposit({ requestId: a.requestId, attestation: a.attestation });
+    });
+    const facts = await be.txFacts(done.txId).catch(() => null);
+    ctx.stage('abandoned', {
+      tx: done.txId,
+      ...(facts?.hash ? { txHash: facts.hash } : {}),
+      circuit: 'abandonDeposit',
+      ...(a.closedBy === 'relay' ? { by: 'bank' } : {}),
+    });
+    this.deps.log.info('never-executed deposit abandoned', { requestId: a.requestId, by: a.closedBy });
+    return {
+      kind: 'deposit',
+      account: a.account,
+      requestId: a.requestId,
+      startTx: a.startTx,
+      attested: 'never-executed',
+      evmTxHash: a.evmTxHash,
+      settleTx: done.txId,
+      settleCircuit: 'abandonDeposit',
+      coin: null,
+      change: null,
+      entryMatchesCoin: true,
+      closedBy: a.closedBy,
+    };
+  }
+
+  private onProgress(ctx: JobContext, laneKey: string | null, p: RelayProgress, closer?: string): void {
     const s = (ms: number) => String(Math.round(ms / 1000));
     switch (p.stage) {
       case 'signed':
+        this.mpcSeen.lastSignatureAfterMs = p.afterMs;
+        // A stale close holds the withdrawal lane without having signed anything itself: record the
+        // nonce the MPC signed for it, so a quote meanwhile promises the next one.
+        if (closer && laneKey && !this.laneNonces.has(laneKey)) {
+          this.laneNonces.set(laneKey, { signedNonce: BigInt(p.nonce), broadcast: false, closer });
+        }
         ctx.stage('mpc-signed', {
           signedTx: p.signedTxHash,
           from: p.from,

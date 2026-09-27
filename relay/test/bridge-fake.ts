@@ -4,6 +4,7 @@
 import type { AttestedKind, BridgeDepositPayload, BridgeKind, BridgeWithdrawPayload } from '@mnbank/core';
 
 import type {
+  Attestation,
   BridgeBackend,
   RelayOutcome,
   RelayProgress,
@@ -50,6 +51,8 @@ export class FakeBridge implements BridgeBackend {
   gate: Gate | null = null;
   /** Extra ids a start also creates (to provoke an ambiguous request match). */
   extraOnStart: Array<{ kind: BridgeKind; path: (account: string) => string }> = [];
+  /** Attestations the MPC has already posted (what `attestation` reads without the loop). */
+  readonly attested = new Map<string, AttestedKind>();
   private seq = 0;
 
   private key = (a: string) => a.toLowerCase();
@@ -96,11 +99,12 @@ export class FakeBridge implements BridgeBackend {
     return (++this.seq).toString(16).padStart(64, '0');
   }
 
-  /** A request as if a start had landed (to test resume after a restart). */
-  addOpen(kind: BridgeKind, account: string, erc20: string, amount: bigint, signedNonce = 0n): string {
+  /** A request as if a start had landed (to test resume after a restart). `account` null: a
+   *  wallet recipient (a request of someone who is not an account). */
+  addOpen(kind: BridgeKind, account: string | null, erc20: string, amount: bigint, signedNonce = 0n): string {
     const id = this.newId();
-    const payer = kind === 'deposit' ? this.depositAddress(account) : VAULT_EVM;
-    this.open[kind].set(id, kind === 'deposit' ? this.depositPathHex(account) : VAULT_PATH);
+    const payer = kind === 'deposit' ? this.depositAddress(account ?? 'ff'.repeat(32)) : VAULT_EVM;
+    this.open[kind].set(id, kind === 'deposit' ? this.depositPathHex(account ?? 'ff'.repeat(32)) : VAULT_PATH);
     this.views[kind].set(id, { account, erc20, amount, signedNonce, payer });
     return id;
   }
@@ -204,5 +208,21 @@ export class FakeBridge implements BridgeBackend {
 
   async txFacts(txId: string): Promise<TxFacts> {
     return { hash: `hash-${txId}`, blockHeight: 1, blockMs: 1_700_000_000_000 };
+  }
+
+  async attestation(kind: BridgeKind, requestId: string): Promise<Attestation | null> {
+    this.calls.push(`attestation:${kind}:${requestId.slice(-2)}`);
+    const k = this.attested.get(requestId);
+    if (!k || !this.views[kind].has(requestId)) return null;
+    return { kind: k, event: { fake: true }, serializedOutput: new Uint8Array(k === 'never-executed' ? 5 : 1) };
+  }
+
+  async abandonDeposit(i: { requestId: string; attestation: Attestation }) {
+    this.calls.push(`abandonDeposit:${i.requestId.slice(-2)}`);
+    if (i.attestation.kind !== 'never-executed') throw new Error('abandonDeposit takes the never-executed marker');
+    if (!this.views.deposit.has(i.requestId)) throw new Error('Deposit not found');
+    this.open.deposit.delete(i.requestId);
+    this.views.deposit.delete(i.requestId);
+    return { txId: `tx-abandon-${i.requestId.slice(-2)}` };
   }
 }
