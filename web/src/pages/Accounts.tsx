@@ -111,7 +111,7 @@ function PriceCell({ v }: { v: Valuation | null }) {
   else if (v.kind === 'priced') body = <span className="num">{bidText(v.price)}</span>;
   else if (v.kind === 'usdc')
     body = (
-      <span className="num">
+      <span className="num-wrap num">
         1.00<Sub>face value</Sub>
       </span>
     );
@@ -404,11 +404,18 @@ function SepoliaSection({
 function PassportHoldings({ coins, tokens }: { coins: StoredCoin[]; tokens: TokenRegistry | null }) {
   // Stocks are valued at the best live bid of the offer book (plan L-MKT); USDC at face value.
   const { value } = useMarkets();
-  const rows = holdingsByColour(coins).map((h) => ({
-    h,
-    token: tokens?.byColour(h.color),
-    v: value(h.color, h.total),
-  }));
+  // Listed in the bank's token order (wStkA, wStkB, wStkC, wUSDC); unknown colours last.
+  const order = (colour: string) => {
+    const i = tokens?.tokens.findIndex((t) => t.midnightColour === colour) ?? -1;
+    return i < 0 ? Number.MAX_SAFE_INTEGER : i;
+  };
+  const rows = holdingsByColour(coins)
+    .map((h) => ({
+      h,
+      token: tokens?.byColour(h.color),
+      v: value(h.color, h.total),
+    }))
+    .sort((a, b) => order(a.h.color) - order(b.h.color));
   const totalUsdc = rows.reduce((n, r) => (r.v.kind === 'usdc' || r.v.kind === 'priced' ? n + r.v.usdcRaw : n), 0n);
   const leftOut = rows.filter((r) => r.v.kind !== 'usdc' && r.v.kind !== 'priced').length;
   const usdc = tokens?.usdc();
@@ -455,15 +462,17 @@ function PassportHoldings({ coins, tokens }: { coins: StoredCoin[]; tokens: Toke
               }
             />
             <Cell label="Quantity" align="right">
-              <span className="num" data-testid="passport-amount" data-raw={h.total.toString()}>
-                {formatUnits(h.total, dec, { minFractionDigits: 2, grouping: true })}
-              </span>
-              <Sub>
-                largest single payment{' '}
-                <span data-testid="passport-largest" data-raw={h.largest.toString()}>
-                  {formatUnits(h.largest, dec, { minFractionDigits: 2, grouping: true })}
+              <span className="num-wrap">
+                <span className="num" data-testid="passport-amount" data-raw={h.total.toString()}>
+                  {formatUnits(h.total, dec, { minFractionDigits: 2, grouping: true })}
                 </span>
-              </Sub>
+                <Sub>
+                  largest single payment{' '}
+                  <span data-testid="passport-largest" data-raw={h.largest.toString()}>
+                    {formatUnits(h.largest, dec, { minFractionDigits: 2, grouping: true })}
+                  </span>
+                </Sub>
+              </span>
             </Cell>
             <PriceCell v={v} />
             <Cell label="Value" align="right" num data-testid="passport-value">

@@ -123,7 +123,7 @@ export interface KeyValueItem {
   term: ReactNode;
   value: ReactNode;
   /** Extra attributes for the value (for example a data-testid). */
-  valueProps?: HTMLAttributes<HTMLElement>;
+  valueProps?: HTMLAttributes<HTMLElement> & { 'data-testid'?: string };
 }
 
 export function KeyValueList({

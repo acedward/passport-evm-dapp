@@ -1,7 +1,9 @@
 // The Transfers section (spec US5, US6; plan L-BRG.1–.3): bridge tokens from Sepolia into the
 // account (deposit), out to a Sepolia address (withdrawal), and follow every transfer in flight.
 //
-// Plain layout for now: the MN Bank design (P1.5) restyles it once the mockup is approved (Q16).
+// Styled with the MN Bank design system (plan P1.5): the deposit and withdrawal forms side by
+// side, the deposit's numbered funding steps, and a stage tracker per transfer with every hash
+// shortened and copyable. Presentation only; the flows are lane L-BRG's.
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 
@@ -32,6 +34,28 @@ import {
   startWithdraw,
 } from '../bridge/operations.js';
 import { listTransfers, transferKey, type TransferRecord } from '../bridge/records.js';
+import {
+  Button,
+  ButtonRow,
+  CopyField,
+  EmptyState,
+  Field,
+  Hash,
+  KeyValueList,
+  Notice,
+  PageHead,
+  Panel,
+  Select,
+  StageTracker,
+  StatusPill,
+  Step,
+  Steps,
+  TextInput,
+  UnitInput,
+  type NoticeTone,
+  type PillStatus,
+  type TrackerStage,
+} from '../design/index.js';
 import { useTokenRegistry } from '../market/MarketContext.js';
 import { readCoins } from '../passport/records.js';
 import { useStore } from '../store/StoreContext.js';
@@ -49,10 +73,17 @@ const errorMsg = (err: unknown, fallback: string): Msg =>
     ? { kind: 'error', text: 'Not started, nothing was signed:', problems: err.problems }
     : { kind: 'error', text: err instanceof Error ? err.message : fallback };
 
-function Notice({ msg, testId }: { msg: Msg; testId: string }) {
+const TONE: Record<NonNullable<Msg>['kind'], NoticeTone> = { ok: 'success', error: 'danger', info: 'info' };
+
+function MessageNotice({ msg, testId }: { msg: Msg; testId: string }) {
   if (!msg) return null;
   return (
-    <div role={msg.kind === 'error' ? 'alert' : 'status'} className={`notice ${msg.kind}`} data-testid={testId}>
+    <Notice
+      tone={TONE[msg.kind]}
+      role={msg.kind === 'error' ? 'alert' : 'status'}
+      className="gap-top"
+      data-testid={testId}
+    >
       {msg.text}
       {msg.problems && (
         <ul>
@@ -63,12 +94,17 @@ function Notice({ msg, testId }: { msg: Msg; testId: string }) {
           ))}
         </ul>
       )}
-    </div>
+    </Notice>
   );
 }
 
 const bridged = (tokens: TokenRegistry | null) =>
   (tokens?.tokens ?? []).filter((t) => t.sepoliaAddress !== '' && t.vault !== '');
+
+/** A Sepolia transaction as a shortened, copyable hash that links to the explorer. */
+function SepoliaTx({ hash, explorer }: { hash: string; explorer: string }) {
+  return <Hash value={hash} head={8} tail={6} href={`${explorer}/tx/${hash}`} />;
+}
 
 // ── Deposit (L-BRG.1) ─────────────────────────────────────────────────────────────
 
@@ -147,152 +183,176 @@ function DepositPanel({ network, tokens }: { network: NetworkProfile; tokens: To
     }
   };
 
+  const explorer = network.evm.explorerUrl;
   return (
-    <section aria-labelledby="deposit-title" data-testid="deposit-panel">
-      <h3 id="deposit-title">Deposit from Sepolia</h3>
-      <p>
-        Your account&apos;s deposit address on Sepolia is{' '}
-        <span className="mono" data-testid="deposit-address">
-          {depositAddress ?? '—'}
-        </span>
-        . It is derived in this page from your account; only your account can receive what is sent there.
-      </p>
+    <Panel title="Deposit from Ethereum" meta="Sepolia to Passport" data-testid="deposit-panel">
+      <Field
+        label="Your account's deposit address"
+        hint="Derived in this page from your account; only your account can receive what is sent there. The page sends to it for you."
+      >
+        {depositAddress ? (
+          <CopyField value={depositAddress} data-testid="deposit-address" />
+        ) : (
+          <span className="mono" data-testid="deposit-address">
+            —
+          </span>
+        )}
+      </Field>
       {!draft && (
         <form onSubmit={begin}>
-          <label>
-            Token{' '}
-            <select value={token?.symbol ?? ''} onChange={(e) => setSymbol(e.target.value)} data-testid="deposit-token">
+          <Field
+            label="Token"
+            htmlFor="deposit-token"
+            hint={token ? `Arrives in your account as ${token.midnightName}.` : undefined}
+          >
+            <Select
+              id="deposit-token"
+              value={token?.symbol ?? ''}
+              onChange={(e) => setSymbol(e.target.value)}
+              data-testid="deposit-token"
+            >
               {list.map((t) => (
                 <option key={t.symbol} value={t.symbol}>
                   {t.symbol} → {t.midnightName}
                 </option>
               ))}
-            </select>
-          </label>
-          <label>
-            Amount{' '}
-            <input
+            </Select>
+          </Field>
+          <Field label="Amount" htmlFor="deposit-amount">
+            <UnitInput
+              id="deposit-amount"
+              unit={token?.symbol ?? '—'}
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               inputMode="decimal"
+              autoComplete="off"
               data-testid="deposit-amount"
             />
-          </label>
-          <button type="submit" data-testid="deposit-continue" disabled={!token || !store}>
+          </Field>
+          <Button type="submit" data-testid="deposit-continue" disabled={!token || !store}>
             Continue
-          </button>
+          </Button>
         </form>
       )}
       {draft && (
         <div data-testid="deposit-draft" data-id={draft.id}>
-          <p>
-            Deposit{' '}
-            <strong>
-              {formatUnits(BigInt(draft.amount), draft.decimals, { minFractionDigits: 2 })} {draft.symbol}
-            </strong>{' '}
-            as {draft.midnightName}. The sweep into the bank&apos;s vault needs up to {eth(GAS_PER_SWEEP)} ETH of gas at
-            the deposit address.
-          </p>
-          <p data-testid="deposit-held">
-            At the deposit address now:{' '}
-            {status
-              ? `${formatUnits(status.held.erc20 ?? 0n, draft.decimals, { minFractionDigits: 2 })} ${draft.symbol}, ${eth(status.held.eth)} ETH`
-              : '—'}
-          </p>
-          <ol>
-            <li>
-              <button
-                type="button"
-                data-testid="send-tokens"
-                disabled={!!busy || status?.tokenShort === 0n}
-                onClick={() =>
-                  void run('tokens', async () => {
-                    const e = env();
-                    if (e) await sendDepositTokens(e, draft);
-                  })
-                }
-              >
-                Send {status && status.tokenShort > 0n ? formatUnits(status.tokenShort, draft.decimals) : ''}{' '}
-                {draft.symbol} from your wallet
-              </button>
-              {status?.tokenShort === 0n && <span data-testid="tokens-ready"> ✓ there</span>}
-              {draft.funding?.tokenTx && (
-                <a
-                  className="mono"
-                  href={`${network.evm.explorerUrl}/tx/${draft.funding.tokenTx}`}
-                  target="_blank"
-                  rel="noreferrer"
+          <KeyValueList
+            items={[
+              {
+                term: 'Deposit',
+                value: (
+                  <strong className="num">
+                    {formatUnits(BigInt(draft.amount), draft.decimals, { minFractionDigits: 2 })} {draft.symbol}
+                  </strong>
+                ),
+              },
+              { term: 'Arrives as', value: draft.midnightName },
+              {
+                term: "Gas for the bridge's sweep",
+                value: <span className="num">up to {eth(GAS_PER_SWEEP)} ETH</span>,
+              },
+              { term: 'Midnight fees', value: 'paid by the bank' },
+              {
+                term: 'At the deposit address now',
+                valueProps: { 'data-testid': 'deposit-held', className: 'tabular' },
+                value: status
+                  ? `${formatUnits(status.held.erc20 ?? 0n, draft.decimals, { minFractionDigits: 2 })} ${draft.symbol}, ${eth(status.held.eth)} ETH`
+                  : '—',
+              },
+            ]}
+          />
+          <Steps>
+            <Step title="Send the tokens with your wallet" done={status?.tokenShort === 0n}>
+              <p>Your wallet asks you to approve a transfer to the deposit address.</p>
+              <ButtonRow>
+                <Button
+                  variant="secondary"
+                  data-testid="send-tokens"
+                  disabled={!!busy || status?.tokenShort === 0n}
+                  onClick={() =>
+                    void run('tokens', async () => {
+                      const e = env();
+                      if (e) await sendDepositTokens(e, draft);
+                    })
+                  }
                 >
-                  {' '}
-                  {short(draft.funding.tokenTx)}
-                </a>
-              )}
-            </li>
-            <li>
-              <button
-                type="button"
-                data-testid="send-gas"
-                disabled={!!busy || status?.gasShort === 0n}
-                onClick={() =>
-                  void run('gas', async () => {
-                    const e = env();
-                    if (e) await sendDepositGas(e, draft);
-                  })
-                }
-              >
-                Send {status && status.gasShort > 0n ? eth(status.gasShort) : ''} ETH for the sweep&apos;s gas
-              </button>
-              {status?.gasShort === 0n && <span data-testid="gas-ready"> ✓ there</span>}
-              {draft.funding?.gasTx && (
-                <a
-                  className="mono"
-                  href={`${network.evm.explorerUrl}/tx/${draft.funding.gasTx}`}
-                  target="_blank"
-                  rel="noreferrer"
+                  Send {status && status.tokenShort > 0n ? formatUnits(status.tokenShort, draft.decimals) : ''}{' '}
+                  {draft.symbol} from your wallet
+                </Button>
+                {status?.tokenShort === 0n && (
+                  <StatusPill status="done" data-testid="tokens-ready">
+                    ✓ there
+                  </StatusPill>
+                )}
+                {draft.funding?.tokenTx && <SepoliaTx hash={draft.funding.tokenTx} explorer={explorer} />}
+              </ButtonRow>
+            </Step>
+            <Step title="Send ETH for the sweep's gas" done={status?.gasShort === 0n}>
+              <p>The bridge's sweep of the deposit address pays its own Sepolia gas.</p>
+              <ButtonRow>
+                <Button
+                  variant="secondary"
+                  data-testid="send-gas"
+                  disabled={!!busy || status?.gasShort === 0n}
+                  onClick={() =>
+                    void run('gas', async () => {
+                      const e = env();
+                      if (e) await sendDepositGas(e, draft);
+                    })
+                  }
                 >
-                  {' '}
-                  {short(draft.funding.gasTx)}
-                </a>
-              )}
-            </li>
-            <li>
-              <button
-                type="button"
-                data-testid="start-deposit"
-                disabled={!!busy}
-                onClick={() =>
-                  void run('start', async () => {
-                    const e = env();
-                    if (!e) return;
-                    const rec = await startDeposit(e, draft);
-                    followActively(rec.id);
-                    setMsg({
-                      kind: 'ok',
-                      text: 'Deposit started. It takes about 20 minutes; you can close this page and come back.',
-                    });
-                  })
-                }
-              >
-                {busy === 'start' ? 'Starting…' : 'Start the deposit (you sign once)'}
-              </button>
-            </li>
-          </ol>
-          <button
-            type="button"
-            className="link"
-            data-testid="deposit-cancel"
-            disabled={!!busy}
-            onClick={() => {
-              const e = env();
-              if (e) e.store.remove(transferKey(e.scope, draft.account, draft.id));
-            }}
-          >
-            Cancel (anything already sent stays at the deposit address for your next deposit)
-          </button>
+                  Send {status && status.gasShort > 0n ? eth(status.gasShort) : ''} ETH for the sweep&apos;s gas
+                </Button>
+                {status?.gasShort === 0n && (
+                  <StatusPill status="done" data-testid="gas-ready">
+                    ✓ there
+                  </StatusPill>
+                )}
+                {draft.funding?.gasTx && <SepoliaTx hash={draft.funding.gasTx} explorer={explorer} />}
+              </ButtonRow>
+            </Step>
+            <Step title="Start the deposit">
+              <p>When both have arrived, sign once to start. The bank does the rest, in about 20 minutes.</p>
+              <ButtonRow>
+                <Button
+                  data-testid="start-deposit"
+                  disabled={!!busy}
+                  onClick={() =>
+                    void run('start', async () => {
+                      const e = env();
+                      if (!e) return;
+                      const rec = await startDeposit(e, draft);
+                      followActively(rec.id);
+                      setMsg({
+                        kind: 'ok',
+                        text: 'Deposit started. It takes about 20 minutes; you can close this page and come back.',
+                      });
+                    })
+                  }
+                >
+                  {busy === 'start' ? 'Starting…' : 'Start the deposit (you sign once)'}
+                </Button>
+              </ButtonRow>
+            </Step>
+          </Steps>
+          <p className="table-note">
+            <Button
+              variant="link"
+              data-testid="deposit-cancel"
+              disabled={!!busy}
+              onClick={() => {
+                const e = env();
+                if (e) e.store.remove(transferKey(e.scope, draft.account, draft.id));
+              }}
+            >
+              Cancel
+            </Button>{' '}
+            — anything already sent stays at the deposit address for your next deposit.
+          </p>
         </div>
       )}
-      <Notice msg={msg} testId="deposit-message" />
-    </section>
+      <MessageNotice msg={msg} testId="deposit-message" />
+    </Panel>
   );
 }
 
@@ -337,10 +397,11 @@ function WithdrawPanel({ network, tokens }: { network: NetworkProfile; tokens: T
 
   if (!account || withdrawable.length === 0 || !chosen) {
     return (
-      <section aria-labelledby="withdraw-title" data-testid="withdraw-panel">
-        <h3 id="withdraw-title">Withdraw to Sepolia</h3>
-        <p data-testid="withdraw-nothing">Nothing to withdraw yet: deposit first.</p>
-      </section>
+      <Panel title="Withdraw to Ethereum" meta="Passport to Sepolia" data-testid="withdraw-panel">
+        <EmptyState data-testid="withdraw-nothing" title="Nothing to withdraw yet">
+          Deposit first: bridged tokens in your account can be withdrawn here.
+        </EmptyState>
+      </Panel>
     );
   }
 
@@ -382,60 +443,104 @@ function WithdrawPanel({ network, tokens }: { network: NetworkProfile; tokens: T
     }
   };
 
+  const gasShort = vaultGas !== null && vaultGas < GAS_PER_SWEEP;
   return (
-    <section aria-labelledby="withdraw-title" data-testid="withdraw-panel">
-      <h3 id="withdraw-title">Withdraw to Sepolia</h3>
+    <Panel title="Withdraw to Ethereum" meta="Passport to Sepolia" data-testid="withdraw-panel">
       <form onSubmit={(e) => void submit(e)}>
-        <label>
-          Token{' '}
-          <select value={chosen.h.color} onChange={(e) => setColour(e.target.value)} data-testid="withdraw-token">
+        <Field label="Token" htmlFor="withdraw-token" hint={`Arrives on Sepolia as ${chosen.t.symbol}.`}>
+          <Select
+            id="withdraw-token"
+            value={chosen.h.color}
+            onChange={(e) => setColour(e.target.value)}
+            data-testid="withdraw-token"
+          >
             {withdrawable.map(({ h, t }) => (
               <option key={h.color} value={h.color}>
                 {t.midnightName} → {t.symbol}
               </option>
             ))}
-          </select>
-        </label>
-        <label>
-          Amount{' '}
-          <input
+          </Select>
+        </Field>
+        <Field
+          label="Amount"
+          htmlFor="withdraw-amount"
+          hint={
+            <span data-testid="withdraw-largest">
+              Largest single payment: {formatUnits(chosen.h.largest, chosen.t.decimals)} {chosen.t.midnightName}
+            </span>
+          }
+        >
+          <UnitInput
+            id="withdraw-amount"
+            unit={chosen.t.midnightName}
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             inputMode="decimal"
+            autoComplete="off"
             data-testid="withdraw-amount"
           />
-        </label>
-        <small data-testid="withdraw-largest">
-          Largest single payment: {formatUnits(chosen.h.largest, chosen.t.decimals)} {chosen.t.midnightName}
-        </small>
-        <label>
-          To (Sepolia address){' '}
-          <input
+        </Field>
+        <Field
+          label="Destination on Sepolia"
+          htmlFor="withdraw-dest"
+          hint="Leave it empty to use your connected wallet, or enter another Sepolia address."
+        >
+          <TextInput
+            id="withdraw-dest"
+            className="mono"
             value={dest}
             placeholder={wallet.address ?? '0x…'}
             onChange={(e) => setDest(e.target.value)}
+            autoComplete="off"
+            spellCheck={false}
             data-testid="withdraw-dest"
           />
-        </label>
-        <small data-testid="vault-gas">
-          The bank&apos;s vault account pays the Sepolia gas (up to {eth(GAS_PER_SWEEP)} ETH):{' '}
-          {vaultGas === null ? '—' : `it holds ${eth(vaultGas)} ETH`}
-          {vaultGas !== null && vaultGas < GAS_PER_SWEEP ? ' — not enough right now; withdrawals are paused' : ''}
-        </small>
-        <p>
+        </Field>
+        <KeyValueList
+          items={[
+            {
+              term: "Bank's bridge gas for the return",
+              value: (
+                <span data-testid="vault-gas" className="tabular">
+                  The bank&apos;s vault account pays the Sepolia gas (up to {eth(GAS_PER_SWEEP)} ETH):{' '}
+                  {vaultGas === null ? '—' : `it holds ${eth(vaultGas)} ETH`}
+                  {gasShort ? ' — not enough right now; withdrawals are paused' : ''}
+                </span>
+              ),
+            },
+            { term: 'Fees', value: 'paid by the bank' },
+            { term: 'Queue', value: 'one at a time, all customers' },
+          ]}
+        />
+        <p className="small muted section-gap">
           You sign once. If you withdraw part of a coin, the bank then asks for a second signature to record the change
           in your account&apos;s inbox, so it can be restored from the chain.
         </p>
-        <button type="submit" disabled={busy} data-testid="withdraw-submit">
-          {busy ? 'Starting…' : 'Withdraw'}
-        </button>
+        <ButtonRow stretch className="section-gap">
+          <Button type="submit" disabled={busy} data-testid="withdraw-submit">
+            {busy ? 'Starting…' : 'Sign and withdraw'}
+          </Button>
+        </ButtonRow>
       </form>
-      <Notice msg={msg} testId="withdraw-message" />
-    </section>
+      <MessageNotice msg={msg} testId="withdraw-message" />
+    </Panel>
   );
 }
 
 // ── Pending and past transfers (L-BRG.3) ──────────────────────────────────────────
+
+/** The milestones every transfer passes, to show what is still ahead while one runs. */
+const MILESTONES = ['started', 'mpc-signed', 'evm-broadcast', 'evm-final', 'attested', 'settled'];
+
+const PILL: Record<TransferRecord['state'], PillStatus> = {
+  funding: 'idle',
+  running: 'progress',
+  'needs-resume': 'progress',
+  succeeded: 'filled',
+  failed: 'failed',
+};
+
+const clock = (unixSeconds: number) => new Date(unixSeconds * 1000).toISOString().slice(11, 16);
 
 function TransferCard({ t, network }: { t: TransferRecord; network: NetworkProfile }) {
   const { env, followActively } = useTransfers();
@@ -464,98 +569,111 @@ function TransferCard({ t, network }: { t: TransferRecord; network: NetworkProfi
     succeeded: 'Done',
     failed: 'Stopped',
   };
+
+  const shown = t.stages.filter((s) => !['queued', 'running', 'succeeded', 'failed'].includes(s.stage));
+  const finished = t.state === 'succeeded' || t.state === 'failed';
+  const stages: TrackerStage[] = shown.map((s, i) => ({
+    key: `${s.stage}-${s.at}-${i}`,
+    title: stageText(t.kind, s.stage),
+    state: i < shown.length - 1 || t.state === 'succeeded' ? 'done' : t.state === 'failed' ? 'failed' : 'current',
+    time: <span title={new Date(s.at * 1000).toISOString()}>{clock(s.at)}</span>,
+    detail: (
+      <span className="detail-links">
+        {stageLinks(s.detail, network.evm.explorerUrl).map((l) => (
+          <span key={`${l.label}-${l.value}`}>
+            {l.label}{' '}
+            {l.value.length > 20 ? (
+              <Hash value={l.value} head={8} tail={6} href={l.href} />
+            ) : (
+              <span className="mono">{l.value}</span>
+            )}
+          </span>
+        ))}
+      </span>
+    ),
+    data: { testid: 'transfer-stage', stage: s.stage },
+  }));
+  // What is still ahead (shown only while the transfer runs its usual course).
+  if (!finished && !shown.some((s) => s.stage === 'evm-not-broadcast')) {
+    const reached = shown.reduce((n, s) => Math.max(n, MILESTONES.indexOf(s.stage)), -1);
+    for (const m of MILESTONES.slice(reached + 1)) {
+      stages.push({ key: `ahead-${m}`, title: stageText(t.kind, m), state: 'pending', data: { ahead: m } });
+    }
+  }
+
   return (
-    <li className="tracker" data-testid="transfer" data-id={t.id} data-kind={t.kind} data-state={t.state}>
-      <p>
-        <strong>{title}</strong> — <span data-testid="transfer-state">{stateText[t.state]}</span>
+    <li className="transfer-card" data-testid="transfer" data-id={t.id} data-kind={t.kind} data-state={t.state}>
+      <div className="transfer-head">
+        <span className="transfer-title">{title}</span>
+        <StatusPill status={PILL[t.state]} data-testid="transfer-state">
+          {stateText[t.state]}
+        </StatusPill>
+      </div>
+      <div className="transfer-meta">
         {t.requestId && (
-          <small className="mono" title={t.requestId} data-testid="transfer-request">
-            {' '}
-            request {short(t.requestId)}
-          </small>
+          <span data-testid="transfer-request">
+            request <Hash value={t.requestId} head={8} tail={6} />
+          </span>
         )}
-      </p>
-      {(t.funding?.tokenTx || t.funding?.gasTx) && (
-        <p>
-          Funding:{' '}
-          {[t.funding?.tokenTx, t.funding?.gasTx].filter(Boolean).map((h) => (
-            <a key={h} className="mono" href={`${network.evm.explorerUrl}/tx/${h}`} target="_blank" rel="noreferrer">
-              {short(h!)}{' '}
-            </a>
-          ))}
-        </p>
-      )}
-      <ol>
-        {t.stages
-          .filter((s) => !['queued', 'running', 'succeeded', 'failed'].includes(s.stage))
-          .map((s, i) => (
-            <li key={`${s.stage}-${s.at}-${i}`} data-testid="transfer-stage" data-stage={s.stage}>
-              {stageText(t.kind, s.stage)}
-              {stageLinks(s.detail, network.evm.explorerUrl).map((l) => (
-                <span key={`${l.label}-${l.value}`}>
-                  {' · '}
-                  {l.label}{' '}
-                  {l.href ? (
-                    <a className="mono" href={l.href} target="_blank" rel="noreferrer" title={l.value}>
-                      {short(l.value)}
-                    </a>
-                  ) : (
-                    <span className="mono" title={l.value}>
-                      {short(l.value)}
-                    </span>
-                  )}
-                </span>
-              ))}
-            </li>
-          ))}
-      </ol>
-      {outcome && <Notice msg={outcome} testId="transfer-outcome" />}
-      {t.state === 'needs-resume' && (
-        <button
-          type="button"
-          disabled={busy}
-          data-testid="resume-transfer"
-          onClick={() =>
-            void act(async () => {
-              const e = env();
-              if (!e) return;
-              const r = await resumeTransfer(e, t);
-              followActively(r.id);
-            })
-          }
-        >
-          {busy ? 'Resuming…' : 'Resume (you sign once)'}
-        </button>
-      )}
-      {t.state === 'succeeded' && t.change && !t.change.secured && (
-        <p data-testid="transfer-change">
-          Change of {formatUnits(BigInt(t.change.coin.value), t.decimals)} {t.midnightName} is not yet recorded in your
-          account&apos;s inbox{t.change.deferredReason ? ` (${t.change.deferredReason})` : ''}.{' '}
-          <button
-            type="button"
+        {(t.funding?.tokenTx || t.funding?.gasTx) && (
+          <span>
+            funding{' '}
+            {[t.funding?.tokenTx, t.funding?.gasTx].filter(Boolean).map((h) => (
+              <SepoliaTx key={h} hash={h!} explorer={network.evm.explorerUrl} />
+            ))}
+          </span>
+        )}
+      </div>
+      {stages.length > 0 && <StageTracker stages={stages} label={title} />}
+      <div className="transfer-foot">
+        {outcome && <MessageNotice msg={outcome} testId="transfer-outcome" />}
+        {t.state === 'needs-resume' && (
+          <Button
             disabled={busy}
-            data-testid="secure-transfer-change"
+            data-testid="resume-transfer"
             onClick={() =>
               void act(async () => {
                 const e = env();
-                if (e)
-                  await secureTransferChange(e, {
-                    ...t,
-                    change: { ...t.change!, deferredReason: undefined },
-                  } as TransferRecord);
+                if (!e) return;
+                const r = await resumeTransfer(e, t);
+                followActively(r.id);
               })
             }
           >
-            Record it now (you sign once)
-          </button>
-        </p>
-      )}
-      {t.change?.secured && (
-        <p data-testid="transfer-change-secured">
-          The change is recorded in your inbox{t.change.secureTx ? ` (tx ${short(t.change.secureTx)})` : ''}.
-        </p>
-      )}
-      <Notice msg={msg} testId="transfer-message" />
+            {busy ? 'Resuming…' : 'Resume (you sign once)'}
+          </Button>
+        )}
+        {t.state === 'succeeded' && t.change && !t.change.secured && (
+          <Notice tone="warning" data-testid="transfer-change">
+            Change of {formatUnits(BigInt(t.change.coin.value), t.decimals)} {t.midnightName} is not yet recorded in
+            your account&apos;s inbox{t.change.deferredReason ? ` (${t.change.deferredReason})` : ''}.{' '}
+            <Button
+              variant="secondary"
+              size="small"
+              disabled={busy}
+              data-testid="secure-transfer-change"
+              onClick={() =>
+                void act(async () => {
+                  const e = env();
+                  if (e)
+                    await secureTransferChange(e, {
+                      ...t,
+                      change: { ...t.change!, deferredReason: undefined },
+                    } as TransferRecord);
+                })
+              }
+            >
+              Record it now (you sign once)
+            </Button>
+          </Notice>
+        )}
+        {t.change?.secured && (
+          <p className="small muted" data-testid="transfer-change-secured">
+            The change is recorded in your inbox{t.change.secureTx ? ` (tx ${short(t.change.secureTx)})` : ''}.
+          </p>
+        )}
+        <MessageNotice msg={msg} testId="transfer-message" />
+      </div>
     </li>
   );
 }
@@ -571,42 +689,64 @@ export function Transfers({ network }: { network: NetworkProfile }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [env, account, revision]);
 
+  const head = (
+    <PageHead
+      eyebrow="Between Ethereum and Midnight"
+      title="Transfers"
+      lede="Move stocks and USDC between your Sepolia wallet and your Passport account. Each transfer takes about 20 minutes, and you can close the page meanwhile."
+    />
+  );
+
   if (wallet.status !== 'connected') {
     return (
       <section data-testid="section-transfers">
-        <h2>Transfers</h2>
-        <p>Connect your wallet to move tokens between Sepolia and your MN Bank account.</p>
+        {head}
+        <EmptyState title="Connect your wallet">
+          Connect your wallet to move tokens between Sepolia and your MN Bank account.
+        </EmptyState>
       </section>
     );
   }
   if (!account || !hasSecret) {
     return (
       <section data-testid="section-transfers">
-        <h2>Transfers</h2>
-        <p data-testid="transfers-no-account">
+        {head}
+        <EmptyState data-testid="transfers-no-account" title="No account in this browser">
           Open an account first (<a href="#accounts">Accounts</a>), or import yours on <a href="#local">Local data</a>.
-        </p>
+        </EmptyState>
       </section>
     );
   }
   return (
     <section data-testid="section-transfers">
-      <h2>Transfers</h2>
-      {!wallet.onRightChain && <p className="notice">Switch your wallet to Sepolia first.</p>}
-      <DepositPanel network={network} tokens={tokens} />
-      <WithdrawPanel network={network} tokens={tokens} />
-      <section aria-labelledby="pending-title" data-testid="transfers-list">
-        <h3 id="pending-title">Pending and past transfers</h3>
+      {head}
+      {!wallet.onRightChain && (
+        <Notice tone="warning" className="panel-intro">
+          Switch your wallet to Sepolia first.
+        </Notice>
+      )}
+      <div className="form-grid">
+        <DepositPanel network={network} tokens={tokens} />
+        <WithdrawPanel network={network} tokens={tokens} />
+      </div>
+      <Panel
+        className="section-gap"
+        title="Pending and past transfers"
+        meta="Stored in this browser"
+        data-testid="transfers-list"
+      >
         {transfers.length === 0 ? (
-          <p data-testid="transfers-empty">No transfers yet.</p>
+          <p className="muted" data-testid="transfers-empty">
+            No transfers yet.
+          </p>
         ) : (
-          <ul>
+          <ul className="transfer-list">
             {transfers.map((t) => (
               <TransferCard key={t.id} t={t} network={network} />
             ))}
           </ul>
         )}
-      </section>
+      </Panel>
     </section>
   );
 }

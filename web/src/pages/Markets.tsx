@@ -304,8 +304,10 @@ export function Markets() {
                   )}
                 </Cell>
                 <Cell label="Last trade" align="right" num data-testid="last-trade">
-                  {isPrice(r.lastTrade) ? r.lastTrade : <NoValue>{r.lastTrade}</NoValue>}
-                  {r.lastTradeAt && <Sub>{r.lastTradeAt}</Sub>}
+                  <span className="num-wrap">
+                    {isPrice(r.lastTrade) ? r.lastTrade : <NoValue>{r.lastTrade}</NoValue>}
+                    {r.lastTradeAt && <Sub>{r.lastTradeAt}</Sub>}
+                  </span>
                 </Cell>
                 <Cell label="Offers" align="right" num data-testid="offer-counts">
                   {r.bids} / {r.asks}

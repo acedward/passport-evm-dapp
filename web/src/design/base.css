@@ -75,6 +75,10 @@ body {
   font-variant-numeric: tabular-nums lining-nums;
   white-space: nowrap;
 }
+/* Tabular numerals that may still wrap (a sentence with amounts in it). */
+.tabular {
+  font-variant-numeric: tabular-nums lining-nums;
+}
 .mono {
   font-family: var(--mono);
   font-size: 0.875em;

@@ -286,6 +286,9 @@
 .section-gap {
   margin-top: var(--space-7);
 }
+.gap-top {
+  margin-top: var(--space-4);
+}
 
 /* ── panels and cards ──────────────────────────────────────────────── */
 .panel {
@@ -399,13 +402,13 @@
 .btn-inverse:focus-visible {
   outline-color: var(--on-navy);
 }
-/* Small buttons keep a 44 px touch target through padding on coarse pointers. */
+/* Small buttons are compact on a desktop, and 44 px tall on a phone or any touch screen. */
 .btn-small {
   min-height: 32px;
   padding: 0 12px;
   font-size: var(--text-sm);
 }
-@media (pointer: coarse) {
+@media (max-width: 640px), (pointer: coarse) {
   .btn-small {
     min-height: var(--tap);
   }
@@ -652,6 +655,17 @@
   font-weight: 700;
   color: var(--ink);
 }
+/* A symbol that opens something (the Markets book): full size, still a link. */
+.cell-asset .sym .btn-link,
+.cell-asset .btn-link.sym {
+  font: 700 var(--text-base) / 1.4 var(--sans);
+}
+/* A value with a second line under it ("largest single payment", a time): one block, so the
+   stacked phone layout keeps the second line under the value. */
+.num-wrap {
+  display: inline-block;
+  text-align: right;
+}
 .cell-asset .name {
   color: var(--slate);
   margin-left: 6px;
@@ -844,7 +858,7 @@
 
 /* ── money ─────────────────────────────────────────────────────────── */
 .money-unit {
-  font-size: 0.875em;
+  font-size: var(--text-md);
   font-weight: 600;
   color: var(--muted);
   margin-left: 4px;
@@ -1137,7 +1151,7 @@
 }
 .kv {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 6px var(--space-4);
   font-size: var(--text-md);
   margin: 0;
@@ -1147,6 +1161,7 @@
 }
 .kv dd {
   margin: 0;
+  min-width: 0;
   text-align: right;
   overflow-wrap: anywhere;
 }
@@ -1238,6 +1253,53 @@
 .disclosure > .disclosure-body {
   padding: var(--space-2) var(--space-4) var(--space-4);
   border-top: var(--rule-hair);
+}
+
+/* ── numbered steps ────────────────────────────────────────────────── */
+.steps {
+  list-style: none;
+  margin: 18px 0 0;
+  padding: 0;
+  counter-reset: step;
+}
+.steps > li {
+  counter-increment: step;
+  position: relative;
+  padding: var(--space-3) 0 var(--space-3) 40px;
+  border-top: var(--rule-hair);
+}
+.steps > li::before {
+  content: counter(step);
+  position: absolute;
+  left: 0;
+  top: var(--space-3);
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font: 700 var(--text-sm) / 1 var(--sans);
+  color: var(--navy);
+  border: 1.5px solid var(--navy);
+}
+.steps > li.done::before {
+  content: '✓';
+  background: var(--navy);
+  color: var(--on-accent);
+}
+.steps .step-title {
+  color: var(--ink);
+}
+.steps .step-body {
+  color: var(--slate);
+  font-size: var(--text-md);
+  margin-top: 2px;
+}
+.steps .step-body > * + * {
+  margin-top: var(--space-2);
+}
+.steps .step-body .btn-row {
+  margin-top: 10px;
 }
 
 /* ── stage tracker ─────────────────────────────────────────────────── */
@@ -1441,6 +1503,91 @@
   gap: 10px;
 }
 
+/* ── Trade (from the mockup, for lane L-TRD to adopt) ──────────────── */
+.trade-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: var(--space-6);
+  align-items: start;
+}
+@media (max-width: 860px) {
+  .trade-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+/* The compact price ladder beside the order form: asks above the spread, bids below. */
+.ladder {
+  border-collapse: collapse;
+  width: 100%;
+}
+.ladder th {
+  font: 600 var(--text-xs) / 1.3 var(--sans);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: left;
+  padding: 0 0 var(--space-2);
+  border-bottom: var(--rule-head);
+}
+.ladder td {
+  padding: 6px 0;
+  border-bottom: var(--rule-hair);
+}
+.ladder .r {
+  text-align: right;
+}
+.ladder .spread td {
+  background: var(--surface-alt);
+  color: var(--slate);
+  font-size: var(--text-sm);
+  text-align: center;
+  padding: 7px 0;
+}
+
+/* ── Transfers ─────────────────────────────────────────────────────── */
+.transfer-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.transfer-card {
+  padding: var(--space-4) 0;
+  border-top: var(--rule-hair);
+  min-width: 0;
+}
+.transfer-card:first-child {
+  border-top: var(--rule-head);
+}
+.transfer-card .transfer-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+}
+.transfer-card .transfer-title {
+  font-weight: 600;
+}
+.transfer-card .transfer-meta {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  margin: var(--space-1) 0 var(--space-4);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+}
+.transfer-card .transfer-foot {
+  margin-top: var(--space-4);
+}
+.transfer-card .transfer-foot > * + * {
+  margin-top: var(--space-3);
+}
+.detail-links {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px var(--space-3);
+}
+
 /* ── Local data ────────────────────────────────────────────────────── */
 .ns-line {
   font-size: var(--text-md);
@@ -1462,6 +1609,8 @@
   min-width: 0;
 }
 .record-contents code {
+  font-size: var(--text-sm);
+  color: var(--slate);
   overflow-wrap: anywhere;
   word-break: break-all;
   text-align: left;

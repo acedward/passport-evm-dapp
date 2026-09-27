@@ -21,6 +21,7 @@ export type { PanelProps, PanelTone } from './Panel.js';
 export { IdentityChip, Masthead, SiteFooter, TabNav } from './Shell.js';
 export type { TabItem } from './Shell.js';
 export { Hash, StageTracker } from './StageTracker.js';
+export { Step, Steps } from './Steps.js';
 export type { StageState, TrackerStage } from './StageTracker.js';
 export { AssetCell, Cell, StatementTable, Sub, SubtotalRow } from './StatementTable.js';
 export type { CellProps, Column, StatementTableProps } from './StatementTable.js';
