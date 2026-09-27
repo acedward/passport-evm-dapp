@@ -52,5 +52,7 @@ else
 fi
 chmod +x "$DEST"/compactc "$DEST"/compactc.bin "$DEST"/zkir "$DEST"/zkir-v3 2>/dev/null || true
 test "$("$DEST/compactc" --version)" == "$VERSION"
+# The verified archive's SHA-256, for build records (the key-volume job stamps it into its report).
+echo "$SHA" >"$DEST/.archive-sha256"
 echo "fetch-compactc: compactc $VERSION verified ($SHA) in $DEST" >&2
 echo "$DEST/compactc"

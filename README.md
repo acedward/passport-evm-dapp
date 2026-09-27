@@ -58,6 +58,14 @@ scripts/docker-check.sh all          # install, compile, check, build, browser t
 scripts/docker-check.sh down         # remove the container and volumes
 ```
 
+## Deployment
+
+`deploy/compose.yml` is the deployment bundle for stagenet: a one-shot job that builds and
+verifies the relay's proving keys, the proof server, the relay and the web site.
+[`deploy/RUNBOOK.md`](deploy/RUNBOOK.md) is the operator's guide (sizing, the sponsor wallet,
+secrets, health, limits, upgrades and incidents), and [`deploy/.env.example`](deploy/.env.example)
+documents every setting.
+
 ## Checks and the secret scan
 
 CI (`.github/workflows/ci.yml`) runs on every push and pull request: typecheck, lint, format,
