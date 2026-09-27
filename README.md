@@ -31,6 +31,7 @@ A customer with only an EVM wallet (MetaMask or any EIP-1193 wallet) can:
 | `relay/` | The relay service (Bun + Hono). |
 | `web/` | The web app (Vite + React). |
 | `deploy/` | Compose files, Dockerfiles, `.env.example` and the runbook. |
+| `docs/` | Reference notes: `PERFORMANCE.md` (proof times and DUST per action, from the live runs). |
 | `scripts/` | The contract light compile, the Docker check runner and the secret scan. |
 | `test/` | Browser end-to-end tests (Playwright). |
 | `vendor/passport` | A git submodule: [`acedward/passport`](https://github.com/acedward/passport), pinned. The account contract and its client come from here. |

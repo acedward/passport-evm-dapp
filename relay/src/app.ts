@@ -10,6 +10,7 @@
 //   GET  /v1/accounts/:account/inbox    public inbox ciphertexts (L-ACC)
 //   GET  /v1/accounts/:account/zswap    the account's Zswap leaves (exact positions) and spends (L-ACC)
 //   GET  /v1/bridge/quote               the Sepolia fields a bridge start signs, nonce included (L-BRG)
+//   GET  /v1/bridge/closed/:requestId   how a request this relay closed recently ended (P4-A, Q21 A)
 //
 // Request bodies are never logged. Errors are JSON: {"error": {"code", "message", "detail"?}}.
 
@@ -20,6 +21,7 @@ import {
   API_PATHS,
   ActionRequestSchema,
   BRIDGE_KINDS,
+  type BridgeClosedResponse,
   type BridgeKind,
   type BridgeQuote,
   RELAY_ACTIONS,
@@ -51,7 +53,12 @@ export interface AppDeps {
   health: () => Promise<HealthResponse>;
   chain: ChainReader;
   /** The bridge's read side (plan L-BRG): the quote a start signs; absent when the relay cannot bridge. */
-  bridge?: { available(): boolean; quote(kind: BridgeKind, account: string, erc20?: string): Promise<BridgeQuote> };
+  bridge?: {
+    available(): boolean;
+    quote(kind: BridgeKind, account: string, erc20?: string): Promise<BridgeQuote>;
+    /** How a request this relay finished recently ended (public facts only), or null. */
+    closedOutcome?(requestId: string): BridgeClosedResponse | null;
+  };
   /** Verifies a gated call's own Passport signature (lanes); absent in P1. */
   passportCall?: (def: ActionDefinition, request: ActionRequest) => Promise<VerifyOutcome>;
   /** The caller's address for rate limiting (default: the socket's, or X-Forwarded-For's last hop). */
@@ -229,6 +236,18 @@ export function createApp(deps: AppDeps): Hono {
     }
   });
 
+  app.get('/v1/bridge/closed/:requestId', (c) => {
+    const refused = limited(readLimiter, clientAddress(c), c);
+    if (refused) return refused;
+    const id = (c.req.param('requestId') ?? '').replace(/^0x/, '').toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(id)) return apiError(c, 400, 'bad-request', 'not a vault request id');
+    const done = deps.bridge?.closedOutcome?.(id) ?? null;
+    c.header('Cache-Control', 'no-store');
+    return done
+      ? c.json(done)
+      : apiError(c, 404, 'not-found', 'this relay has not closed that request recently (or it restarted since)');
+  });
+
   app.get('/v1/accounts/:account/state', accountRead('state'));
   app.get('/v1/accounts/:account/inbox', accountRead('inbox'));
   app.get('/v1/accounts/:account/zswap', accountRead('zswap'));
@@ -296,7 +315,11 @@ export function createApp(deps: AppDeps): Hono {
       }
 
       const ownerRefused = limited(ownerLimiter, outcome.signer.toLowerCase(), c);
-      if (ownerRefused) return ownerRefused;
+      if (ownerRefused) {
+        // Refused after the authorisation was accepted: let the same signature be sent again later.
+        outcome.release?.();
+        return ownerRefused;
+      }
 
       const job = deps.queue.submit({
         action: def.action,
@@ -311,7 +334,10 @@ export function createApp(deps: AppDeps): Hono {
         },
         executor: def.executor,
       });
-      if (!job) return apiError(c, 503, 'busy', 'the relay is at capacity; try again later');
+      if (!job) {
+        outcome.release?.();
+        return apiError(c, 503, 'busy', 'the relay is at capacity; try again later');
+      }
       log.info('action queued', { action: def.action, requestId: job.requestId });
       return c.json({ job }, 202);
     },

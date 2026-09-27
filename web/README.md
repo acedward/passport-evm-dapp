@@ -16,7 +16,6 @@ subtotals, restrained motion (none under `prefers-reduced-motion`), no gradients
 | `tokens.css`                | Colour, type, spacing and rule tokens as CSS custom properties. Every text pair is checked for WCAG AA by `test/design-contrast.test.ts`: change a colour there and run the tests. |
 | `base.css`                  | Reset, headings, links, focus ring, utilities (`num`, `tabular`, `mono`, `break`, `eyebrow`, `muted`, `small`, `sr-only`, `wrap`), reduced motion.                                |
 | `components.css`            | The styles behind the components below.                                                                                                                                             |
-| `legacy.css`                | Keeps a section that has not adopted the components (today: Trade) on-brand. Delete it when Trade has moved.                                                                        |
 | `fonts.ts`                  | The self-hosted fonts (see below).                                                                                                                                                  |
 | `index.ts`                  | Every component, imported as `from '../design/index.js'`.                                                                                                                           |
 
@@ -31,7 +30,7 @@ also break a strict CSP and the browser tests, which refuse any request that lea
 origin. Only the Latin subset loads, with `font-display: swap`; anything else falls back to
 Georgia / the system sans, and `test/e2e/visual.spec.ts` checks that fallback.
 
-### Adopting the design system (for Trade, and anything P4 adds)
+### Adopting the design system (every page uses it; follow this for anything new)
 
 Replace plain markup with the components and keep every `data-testid` where it is: the components
 pass `data-*`, `id`, `role`, `aria-*` and event props straight through to their element.
@@ -162,3 +161,20 @@ given). Pass a stage's test attributes through `data`:
 no horizontal page scroll, 44 px buttons on a phone, self-hosted fonts and no gradients; add the
 new page there (its fixtures are in `test/e2e/visual-fixtures.ts`). The screenshots land in
 `test-results/visual/` (or `$VISUAL_OUT_DIR`).
+
+## When something is not working (error states)
+
+Every way the bank, the exchange, the MPC, the wallet or the browser can stop an action has one
+wording, kept in one place and unit-tested (`test/errors.test.ts`; the walkthroughs in the browser
+are `test/e2e/errors.spec.ts`):
+
+| File | What it words |
+| --- | --- |
+| `src/relay/messages.ts` | The relay's refusals (rate limits with their wait, the fee wallet low or starting up, a stale or replayed signature) and failed jobs (the exchange's settlement service at its limit or failing). `RelayError.message` is already the customer's sentence. |
+| `src/relay/status.ts` | What `/health` pauses: the bank unreachable, its prover down, its fee wallet low or syncing (the shell); withdrawals when the vault's Sepolia account is low on gas, a slow MPC (Transfers); the settlement service down or refusing (Trade). `BankStatus.tsx` reads `/health` every minute and on tab focus; pages disable what is paused and say why BEFORE the wallet is asked to sign. |
+| `src/store/messages.ts` | Local storage blocked, unavailable or full. |
+| `src/bridge/messages.ts` | A transfer's stages and outcomes, including a stale request the bank closed (Q21 A) and a never-executed deposit closed with `abandonDeposit`. |
+
+A wallet on another network gets a banner with a Switch button, and every signature and send first
+checks the wallet's chain (`ensureChain` in `src/passport/operations.ts`).
+

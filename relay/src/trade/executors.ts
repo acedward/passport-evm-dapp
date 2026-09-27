@@ -45,6 +45,32 @@ export interface TradeDeps {
   ledgerParameters?: (rt: PassportRuntime, account: string) => Promise<unknown>;
   /** Poll timings (tests shorten them). */
   timings?: { publishRetryMs?: number; statusPollMs?: number; statusTimeoutMs?: number };
+  /** Told when the batcher refuses a take (health shows the last one, plan P4-A). */
+  onBatcherRefusal?: (httpStatus: number) => void;
+}
+
+/**
+ * The customer's words for a take the batcher did not settle (plan P4-A error states). The batcher
+ * answers 429 at its request cap (1000 a day per client and across all clients, research finding
+ * 13) and a generic 500 for failures, including a settlement it has already seen (L-TRD.0).
+ */
+export function batcherRefusalError(httpStatus: number, error: string | undefined): PublicError {
+  if (httpStatus === 429) {
+    return new PublicError(
+      'exchange-busy',
+      "the exchange's settlement service is not taking more settlements right now (HTTP 429: it allows a limited number a day). Nothing was settled and your coins did not move; try again later",
+    );
+  }
+  if (httpStatus >= 500) {
+    return new PublicError(
+      'exchange-error',
+      `the exchange's settlement service failed (HTTP ${httpStatus}) and did not confirm the take. Refresh the book: if the offer was taken by someone else it is gone, and if your take settled after all your balances show it`,
+    );
+  }
+  return new PublicError(
+    'take-refused',
+    `the exchange did not settle the take${error ? `: ${error.slice(0, 300)}` : ''}`,
+  );
 }
 
 const seconds = (ms: number) => Math.round(ms / 100) / 10;
@@ -221,13 +247,17 @@ export function takeExecutor(deps: TradeDeps): JobExecutor {
               address,
               ...(deps.batcherTarget ? { target: deps.batcherTarget } : {}),
               ...(deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {}),
+            }).catch((e: unknown) => {
+              deps.log.warn('the batcher could not be reached', { error: e });
+              throw new PublicError(
+                'exchange-unavailable',
+                "the exchange's settlement service could not be reached or did not answer in time. Refresh the book: if your take settled after all, your balances show it",
+              );
             });
             if (!b.ok || !b.transactionHash) {
               deps.log.warn('the batcher refused a take', { status: b.httpStatus, error: b.error });
-              throw new PublicError(
-                'take-refused',
-                `the exchange did not settle the take${b.error ? `: ${b.error.slice(0, 300)}` : ''}`,
-              );
+              deps.onBatcherRefusal?.(b.httpStatus);
+              throw batcherRefusalError(b.httpStatus, b.error);
             }
             ctx.stage('settled', { tx: b.transactionHash, offerId: p.offerId });
             const result: TakeResult = {

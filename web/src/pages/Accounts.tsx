@@ -63,7 +63,9 @@ import {
   type OperationEnv,
 } from '../passport/operations.js';
 import { findAccount, listJobs, readCoins, readSecret } from '../passport/records.js';
+import { useBankStatus } from '../relay/BankStatus.js';
 import { RelayClient } from '../relay/client.js';
+import { storageText } from '../store/messages.js';
 import { useStore } from '../store/StoreContext.js';
 import { confirmCancelsOffer as confirmOffer, markLiveOffersCancelled } from '../trade/operations.js';
 import { useWallet } from '../wallet/WalletContext.js';
@@ -597,7 +599,8 @@ function SendForm({
 export function Accounts({ network, relayUrl }: { network: NetworkProfile; relayUrl: string }) {
   // The bank's token list; the price feed starts only where holdings are valued.
   const tokens = useTokenRegistry();
-  const { store, revision } = useStore();
+  const { store, revision, status: storageStatus } = useStore();
+  const { spendingPaused } = useBankStatus();
   const wallet = useWallet();
   const relay = useMemo(() => new RelayClient(relayUrl), [relayUrl]);
   const [job, setJob] = useState<JobView | null>(null);
@@ -864,9 +867,19 @@ export function Accounts({ network, relayUrl }: { network: NetworkProfile; relay
                   Switch your wallet to Sepolia first.
                 </Notice>
               )}
+              {storageStatus !== 'ok' && (
+                <Notice tone="danger" className="panel-intro" data-testid="open-account-storage">
+                  Not here: {storageText(storageStatus).title} Your account&apos;s secret would have nowhere to live.
+                </Notice>
+              )}
+              {spendingPaused && (
+                <Notice tone="warning" className="panel-intro" data-testid="open-account-paused">
+                  Not now: {spendingPaused}
+                </Notice>
+              )}
               <Button
                 data-testid="open-account"
-                disabled={!!busy || !wallet.onRightChain || !store || store.readOnly}
+                disabled={!!busy || !wallet.onRightChain || !store || store.readOnly || !!spendingPaused}
                 onClick={() => void open()}
               >
                 {registering || busy === 'register' ? 'Opening your account…' : 'Open account'}

@@ -102,7 +102,8 @@ export function TransfersProvider({
       const e = env();
       if (!e) return;
       for (const t of pendingTransfers(e, accountAddress)) {
-        if (stopped || t.state !== 'running') continue;
+        // A transfer to resume is asked about too: the bank may have closed it (plan P4-A).
+        if (stopped || (t.state !== 'running' && t.state !== 'needs-resume')) continue;
         try {
           await pollTransfer(e, t);
         } catch {

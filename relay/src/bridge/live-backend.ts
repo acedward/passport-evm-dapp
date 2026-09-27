@@ -16,8 +16,13 @@
 //
 // The coin a settle mints gets its inbox entry sealed HERE to the account's PUBLIC key (read from
 // its ledger): the settles are permissionless and never need the browser's secret.
+//
+// Plan P4-A (Q21 A) adds two things: reading a request's attestation WITHOUT running the loop (the
+// stale-request closer decides from it), and the vault's own `abandonDeposit`, called directly
+// through `findDeployedContract` on the key volume's compiled vault, for a never-executed deposit.
 
 import { randomBytes } from 'node:crypto';
+import { join } from 'node:path';
 
 import type {
   BridgeCoinJson,
@@ -35,6 +40,7 @@ import type { SponsorWalletHandle } from '../passport/wallet-provider.js';
 import type { SponsorSession } from '../sponsor/session.js';
 import {
   jsonRpcEvmReader,
+  type Attestation,
   type BridgeBackend,
   type OpenRequests,
   type RelayOutcome,
@@ -120,6 +126,7 @@ export async function loadLiveBridgeBackend(opts: LiveBridgeOptions): Promise<Br
   const vaultAddress = normaliseHex(b.vaultAddress);
   const [vaultMod, derive, ledgerV9, relayer, sdk] = await Promise.all([
     import(`${VENDOR}/contracts/managed/Erc20Vault/contract/index.js`) as Promise<{
+      Contract: unknown;
       ledger: (data: unknown) => Record<string, unknown>;
       pureCircuits: {
         vaultResponseSchema(): Uint8Array;
@@ -215,6 +222,65 @@ export async function loadLiveBridgeBackend(opts: LiveBridgeOptions): Promise<Br
         privateState.wipe();
       }
     });
+
+  /** Run one circuit of the VAULT itself (called directly, not through an account), with the
+   *  sponsor paying: the compiled vault from the key volume, connected by `findDeployedContract`,
+   *  which refuses unless the deployed verifier keys are the volume's. Only `abandonDeposit`. */
+  const vaultZkPath = join(rt.options.managedPath, 'Erc20Vault');
+  const callVault = (circuit: 'abandonDeposit', args: unknown[]): Promise<unknown> =>
+    sponsor.withWallet(async (w) => {
+      const privateState = new MemoryPrivateStateProvider();
+      try {
+        const [{ NodeZkConfigProvider }, { findDeployedContract }] = await Promise.all([
+          import('@midnight-ntwrk/midnight-js-node-zk-config-provider'),
+          import('@midnight-ntwrk/midnight-js-contracts'),
+        ]);
+        const { CompiledContract } = rt.client.compactJs;
+        const base = await rt.providers(w as SponsorWalletHandle, privateState);
+        const providers = { ...base, zkConfigProvider: new NodeZkConfigProvider(vaultZkPath) };
+        const compiled = CompiledContract.make('Erc20Vault', vaultMod.Contract as never).pipe(
+          CompiledContract.withVacantWitnesses,
+          CompiledContract.withCompiledFileAssets(vaultZkPath),
+        );
+        const found = (await (findDeployedContract as (...a: unknown[]) => Promise<unknown>)(providers, {
+          contractAddress: vaultAddress,
+          compiledContract: compiled,
+          privateStateId: `Erc20Vault-${randomBytes(6).toString('hex')}`,
+          initialPrivateState: {},
+        })) as { callTx: Record<string, (...a: unknown[]) => Promise<unknown>> };
+        return await submitWithDustRetry(circuit, log, () => found.callTx[circuit]!(...args));
+      } finally {
+        privateState.wipe();
+      }
+    });
+
+  /** The request's attestation, if one already verifies: read-only, as the relayer loop's last step
+   *  reads it (the MPC's output cache first, then the three `bool` candidates). */
+  const attestation = async (kind: BridgeKind, requestId: string): Promise<Attestation | null> => {
+    const reader = relayer.makeReader({
+      publicDataProvider: rt.publicDataProvider,
+      indexerUrl: network.midnight.indexerUrl,
+      requesterContractAddress: vaultAddress,
+      requesterRequestsPath:
+        kind === 'deposit' ? vaultConstants.depositRequestsPath : vaultConstants.withdrawRequestsPath,
+      signetContractAddress: vaultConstants.signetAddress,
+    });
+    const cache = new sdk.MpcOutputCacheReader({
+      networkId: network.midnightNetworkId,
+      cacheUrl: b.mpcOutputCacheUrl,
+      signetContractAddress: vaultConstants.signetAddress,
+    } as never) as { fetchSerializedOutput(id: never): Promise<Uint8Array | undefined> };
+    const id = normaliseHex(requestId);
+    const cached = await cache.fetchSerializedOutput(id as never).catch(() => undefined);
+    const posts = (await reader.getRespondBidirectionalEvents(id as never)) as readonly unknown[];
+    const found = relayer.findAttestation(id, posts, responseKey, vaultConstants.responseSchema, cached);
+    if (!found) return null;
+    return {
+      kind: found.kind,
+      event: sdk.respondBidirectionalEventToCircuitInput(found.post as never),
+      serializedOutput: found.bytes,
+    };
+  };
 
   const authArgs = (auth: StartAuth) => rt.client.signer.authArgs(auth as never) as unknown[];
   const evmArgs = (e: BridgeDepositPayload['evm']) => [
@@ -338,6 +404,14 @@ export async function loadLiveBridgeBackend(opts: LiveBridgeOptions): Promise<Br
         coin: claimed ? coinJson(claimed) : null,
         entryMatchesCoin: claimed === null || matches,
       };
+    },
+
+    attestation,
+
+    async abandonDeposit({ requestId, attestation: a }: { requestId: string; attestation: Attestation }) {
+      if (a.kind !== 'never-executed') throw new Error('abandonDeposit closes only a never-executed deposit');
+      const r = await callVault('abandonDeposit', [unhex(requestId), a.event, a.serializedOutput]);
+      return { txId: txIdOf(r) };
     },
 
     async txFacts(txId: string): Promise<TxFacts> {

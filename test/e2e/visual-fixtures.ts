@@ -11,6 +11,7 @@ import { BOOK, COLOUR } from '../../packages/core/test/fixtures/kernel/book.js';
 import { KernelFixture, STREAM_HEADERS, connectedEvent } from '../../packages/core/test/fixtures/kernel/mock-kernel.js';
 import { contractCoinCommitment, localCoin, reconcileCoins } from '../../packages/core/src/coins.js';
 import { bytesToHex, hexToBytes } from '../../packages/core/src/hex.js';
+import { evmDeviceEntry } from '../../packages/core/src/passport/gated.js';
 import { sealEntryPortable } from '../../vendor/passport/contract/src/wallet/deposit.js';
 import { encodeRecord, recordKey } from '../../web/src/store/schema.js';
 import { installTestWallet, type TestWallet } from './test-wallet.js';
@@ -66,7 +67,7 @@ export interface Customer {
  */
 export async function installCustomer(
   page: Page,
-  opts: { withAccount: boolean; withTransfers?: boolean },
+  opts: { withAccount: boolean; withTransfers?: boolean; withTrades?: boolean },
 ): Promise<Customer> {
   const wallet = await installTestWallet(page, {
     startChainId: '0xaa36a7',
@@ -154,6 +155,7 @@ export async function installCustomer(
     [recordKey(scope, 'roster', { account: ACCOUNT }), encodeRecord('roster', { useCounter: '14' }, now - 3_600_000)],
   ];
   if (opts.withTransfers) seed.push(...transferRecords(scope, wallet.address, now));
+  if (opts.withTrades) seed.push(...tradeRecords(scope, now));
   await page.addInitScript((pairs) => {
     if (sessionStorage.getItem('mn-visual-seeded')) return; // seed once per tab, not on reloads
     for (const [k, v] of pairs) localStorage.setItem(k, v);
@@ -190,7 +192,9 @@ export async function installCustomer(
         booted: true,
         deviceCount: 1,
         deviceEpoch: '0',
-        devices: ['ab'.repeat(32)],
+        // The connected wallet is the account's device, at the roster's use counter (14), so the
+        // page can build a signed call (plan P4-A: the error walkthroughs take an offer).
+        devices: [evmDeviceEntry(ACCOUNT, wallet.address, 0n, 14n)],
         authNonce: '14',
         inboxCount: String(entries.length),
         encKey: bytesToHex(pk),
@@ -306,5 +310,48 @@ function transferRecords(scope: { network: string; evmAddress: string }, evm: st
         string,
         string,
       ],
+  );
+}
+
+/** My offers as this browser keeps them: a live offer of the account, and an offer it took. */
+function tradeRecords(scope: { network: string; evmAddress: string }, now: number) {
+  const base = { stock: COLOUR.wStkA, usdc: COLOUR.wUSDC, coin: 'c0'.repeat(32), authNonce: '14' };
+  const records = [
+    {
+      ...base,
+      offerId: 'f1'.repeat(32),
+      role: 'make',
+      side: 'sell',
+      stockRaw: String(units(2)),
+      usdcRaw: String(units(2.2)),
+      summary: 'sell 2.00 wStkA at 1.10',
+      wantNonce: 'f2'.repeat(32),
+      createdAt: now - 600_000,
+      expiresAt: now + 3_000_000,
+      status: 'live',
+      kernelStatus: 'live',
+    },
+    {
+      ...base,
+      offerId: 'f3'.repeat(32),
+      role: 'take',
+      side: 'buy',
+      stockRaw: String(units(5)),
+      usdcRaw: String(units(4.85)),
+      summary: 'buy 5.00 wStkA at 0.97',
+      wantNonce: 'f4'.repeat(32),
+      createdAt: now - 86_400_000,
+      expiresAt: now - 86_400_000,
+      status: 'filled',
+      kernelStatus: 'consumed',
+      settledTx: `44${'21'.repeat(30)}c9`,
+    },
+  ];
+  return records.map(
+    (r) =>
+      [
+        recordKey(scope, 'offer', { account: ACCOUNT, id: `${r.role}-${r.offerId}` }),
+        encodeRecord('offer', r, r.createdAt),
+      ] as [string, string],
   );
 }

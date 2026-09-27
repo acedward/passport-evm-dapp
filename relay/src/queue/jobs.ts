@@ -18,7 +18,7 @@
 
 import { randomBytes } from 'node:crypto';
 
-import type { JobLane, JobStage, JobState, JobView, RelayActionName } from '@mnbank/core';
+import type { JobActionName, JobLane, JobStage, JobState, JobView } from '@mnbank/core';
 
 import type { Logger } from '../log.js';
 import { FifoLock } from './fifo-lock.js';
@@ -47,7 +47,8 @@ export interface JobContext {
 export type JobExecutor = (payload: unknown, ctx: JobContext) => Promise<Record<string, unknown>>;
 
 export interface JobSubmission {
-  action: RelayActionName;
+  /** A route's action, or an internal job the relay runs on its own (plan P4-A: `bridge-close`). */
+  action: JobActionName;
   lane: JobLane;
   /** The deposit lane's account (64 hex); ignored by the other lanes. */
   account?: string;
@@ -57,7 +58,7 @@ export interface JobSubmission {
 
 interface JobRecord {
   requestId: string;
-  action: RelayActionName;
+  action: JobActionName;
   lane: JobLane;
   laneKey: string;
   state: JobState;

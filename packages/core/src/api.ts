@@ -21,6 +21,8 @@ export const API_PATHS = {
   accountZswap: (account: string) => `/v1/accounts/${account}/zswap`,
   /** `?kind=deposit|withdraw&account=<64 hex>[&erc20=<0x…>]`: the Sepolia fields to sign (plan L-BRG). */
   bridgeQuote: '/v1/bridge/quote',
+  /** A bridge request the relay closed recently (plan P4-A, Q21 A): public chain facts only. */
+  bridgeClosed: (requestId: string) => `/v1/bridge/closed/${requestId}`,
 } as const;
 
 // ── Errors ──────────────────────────────────────────────────────────────────
@@ -67,9 +69,15 @@ export const JobStageSchema = z.object({
 });
 export type JobStage = z.infer<typeof JobStageSchema>;
 
+/** Jobs the relay runs on its own, never requested through a route (plan P4-A, Q21 A): closing a
+ *  bridge request its owner left open. `POST /v1/actions/bridge-close` does not exist. */
+export const INTERNAL_JOB_ACTIONS = ['bridge-close'] as const;
+export type InternalJobAction = (typeof INTERNAL_JOB_ACTIONS)[number];
+export type JobActionName = RelayActionName | InternalJobAction;
+
 export const JobViewSchema = z.object({
   requestId: z.string().regex(/^[0-9a-f]{32}$/),
-  action: z.enum(RELAY_ACTIONS),
+  action: z.enum([...RELAY_ACTIONS, ...INTERNAL_JOB_ACTIONS]),
   lane: z.enum(JOB_LANES),
   state: z.enum(JOB_STATES),
   /** The newest stage. */
@@ -131,6 +139,10 @@ export const HealthResponseSchema = z.object({
       fingerprint: z.string().nullable(),
       pinned: z.boolean(),
       matchesPin: z.boolean().nullable(),
+      /** Every circuit the relay proves has its keys, as deployed (plan P4-A). */
+      complete: z.boolean().optional(),
+      /** How many circuits the relay proves lack a key or do not match the deployed contract. */
+      problems: z.number().int().optional(),
     }),
   }),
   queue: z.object({
@@ -138,12 +150,55 @@ export const HealthResponseSchema = z.object({
     lanes: z.record(z.string(), z.object({ running: z.number().int(), waiting: z.number().int() })),
   }),
   kernel: z.object({ reachable: z.boolean(), synced: z.boolean().nullable() }),
-  batcher: z.object({ reachable: z.boolean() }),
+  batcher: z.object({
+    reachable: z.boolean(),
+    /** The batcher's last refusal of a take this relay submitted (plan P4-A): 429 = its request cap,
+     *  500 = a generic failure (a replayed settlement answers 500 too). Null when none. */
+    lastRefusal: z.object({ httpStatus: z.number().int(), at: z.number().int() }).nullable().optional(),
+  }),
   vaultGas: z.object({
     address: z.string(),
     balanceWei: z.string().nullable(),
     low: z.boolean().nullable(),
   }),
+  /** The bridge (plan P4-A): the MPC's recent behaviour and the stale-request closer (Q21 A). */
+  bridge: z
+    .object({
+      available: z.boolean(),
+      mpc: z.object({
+        /** Seconds the MPC took to sign the last request this relay drove; null before any. */
+        lastSignatureAfterSeconds: z.number().int().nullable(),
+        /** Requests whose signature did not arrive within the 20-minute budget, last 24 h. */
+        timeouts24h: z.number().int(),
+        /** Requests being driven now (waiting for the MPC or Sepolia). */
+        inFlight: z.number().int(),
+      }),
+      staleRequests: z.object({
+        enabled: z.boolean(),
+        lastScanAt: z.number().int().nullable(),
+        /** Open in the vault right now (every requester, not only this bank's customers). */
+        open: z.object({ deposit: z.number().int(), withdraw: z.number().int() }),
+        /** Stale requests of this bank's accounts, waiting to be closed. */
+        waiting: z.number().int(),
+        closing: z.number().int(),
+        /** Settle or abandonDeposit transactions the sponsor paid for closing stale requests, last 24 h. */
+        closed24h: z.number().int(),
+        maxPerDay: z.number().int(),
+        /** The newest closes (public ids only). */
+        recent: z.array(
+          z.object({
+            kind: z.enum(['deposit', 'withdraw']),
+            requestId: z.string(),
+            circuit: z.string(),
+            tx: z.string(),
+            at: z.number().int(),
+          }),
+        ),
+        /** Why the closer is holding back, when it is (the sponsor is low, the daily cap is reached). */
+        paused: z.string().nullable(),
+      }),
+    })
+    .optional(),
 });
 export type HealthResponse = z.infer<typeof HealthResponseSchema>;
 
