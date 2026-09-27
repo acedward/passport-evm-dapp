@@ -66,6 +66,17 @@ verifies the relay's proving keys, the proof server, the relay and the web site.
 secrets, health, limits, upgrades and incidents), and [`deploy/.env.example`](deploy/.env.example)
 documents every setting.
 
+## The local end-to-end
+
+`test/stack/run-e2e.sh all` runs the whole product on a local ledger-9 Midnight stack with the
+ZSwap kernel and batcher, then tears it all down. It drives the web app with Playwright, and the
+page calls the relay over HTTP. Two customers open accounts, are funded, make and take an offer
+in one transaction through the local batcher, and restore an export. Markets is checked against
+a manual computation over the kernel's book.
+
+It needs a Docker host with about 30 GB of memory, so it is not part of the hosted CI.
+`test/stack/README.md` covers what it proves, its requirements, and a self-hosted runner job.
+
 ## Checks and the secret scan
 
 CI (`.github/workflows/ci.yml`) runs on every push and pull request: typecheck, lint, format,
