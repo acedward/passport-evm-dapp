@@ -16,11 +16,21 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE="${GITLEAKS_IMAGE:-ghcr.io/gitleaks/gitleaks:v8.28.0}"
 
+# In a git worktree, .git is a file naming a directory outside the tree: mount the repository's
+# common git directory too, read-only, and point GIT_DIR at this worktree's entry in it, so
+# gitleaks can read the history. (Docker Desktop cannot mount at a target under /Users.)
+COMMON_GIT="$(cd "$ROOT" && git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+OWN_GIT="$(cd "$ROOT" && git rev-parse --path-format=absolute --git-dir 2>/dev/null || true)"
+MOUNTS=(-v "$ROOT:/repo:ro")
+if [[ -n "$COMMON_GIT" && "$OWN_GIT" == "$COMMON_GIT/"* ]]; then
+  MOUNTS+=(-v "$COMMON_GIT:/gitcommon:ro" -e "GIT_DIR=/gitcommon/${OWN_GIT#"$COMMON_GIT/"}" -e GIT_WORK_TREE=/repo)
+fi
+
 gitleaks_run() { # <mode> <path relative to ROOT> [extra flags]
   if command -v gitleaks >/dev/null 2>&1; then
     (cd "$ROOT" && gitleaks "$@" --config .gitleaks.toml --redact --no-banner --log-level warn)
   else
-    docker run --rm -v "$ROOT:/repo:ro" -w /repo --entrypoint sh "$IMAGE" -c \
+    docker run --rm "${MOUNTS[@]}" -w /repo --entrypoint sh "$IMAGE" -c \
       'git config --global --add safe.directory "*" >/dev/null 2>&1; gitleaks "$@" --config .gitleaks.toml --redact --no-banner --log-level warn' \
       sh "$@"
   fi

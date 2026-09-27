@@ -37,7 +37,8 @@ export interface TokenEntry {
   midnightColour: string;
   /** The vault that mints the bridged colour; '' when not bridged (local test tokens). */
   vault: string;
-  /** True until the owner confirms the entry (USDC: PR #4's description). */
+  /** True while an entry is not yet confirmed by its owner's canonical list. Every stagenet entry
+   *  is confirmed (PR #4's description lists them at `07d8ea4`); configuration may still set it. */
   provisional: boolean;
   source: TokenSource | null;
 }
@@ -124,14 +125,12 @@ export class TokenRegistry {
 
 export const STAGENET_SOURCE: TokenSource = {
   repo: 'acedward/passport',
-  commit: '2178b57a5b9ad7d106aa188d80309b7101697824',
+  commit: '07d8ea4f4e83ad264b3d2eef536be02047308827',
   file: 'contract/contracts/erc20-vault/deployments/stagenet-vault.json',
 };
 
 /** Symbols whose ERC20 is the quote currency. */
 const USDC_SYMBOLS = new Set(['USDC']);
-/** Entries not yet confirmed by the owner's canonical list (PR #4's description). */
-const PROVISIONAL_SYMBOLS = new Set(['USDC']);
 
 export function stagenetRegistry(): TokenRegistry {
   const stk = new Map(sepoliaStkTokens.map((t) => [t.address.toLowerCase(), t]));
@@ -148,7 +147,8 @@ export function stagenetRegistry(): TokenRegistry {
       sepoliaAddress: getAddress(b.erc20Address),
       midnightColour: normaliseHex32(b.midnightColour),
       vault: normaliseHex32(vaultContractAddress),
-      provisional: PROVISIONAL_SYMBOLS.has(b.erc20),
+      // Canonical: PR #4's description lists every one of these at `07d8ea4` (PROVENANCE.md).
+      provisional: false,
       source: STAGENET_SOURCE,
     };
   });

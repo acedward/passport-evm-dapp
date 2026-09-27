@@ -1,15 +1,17 @@
 // The application shell: brand, wallet connection and the five sections. The layout and styling
 // are deliberately plain; the MN Bank design (P1.5) replaces them once the owner approves the
-// mockup (question Q16). The Local data section is complete; the other four arrive with the lanes.
+// mockup (question Q16). Accounts, Markets and Local data are complete; Transfers and Trade arrive with
+// their lanes.
 
 import { useEffect, useState } from 'react';
 
 import type { NetworkProfile } from '@mnbank/core';
 
 import { loadSiteConfig, type SiteConfig } from './config.js';
-import { ValuationContext, faceValueOnly } from './markets/valuation.js';
+import { MarketProvider } from './market/MarketContext.js';
 import { Accounts } from './pages/Accounts.js';
 import { LocalData } from './pages/LocalData.js';
+import { Markets } from './pages/Markets.js';
 import { StoreProvider, useStore } from './store/StoreContext.js';
 import { WalletProvider, useWallet } from './wallet/WalletContext.js';
 
@@ -148,7 +150,9 @@ function Shell({ network, config }: { network: NetworkProfile; config: SiteConfi
         {section === 'local' ? (
           <LocalData network={network.name} />
         ) : section === 'accounts' ? (
-          <Accounts network={network} relayUrl={config.relayUrl} tokens={config.tokens} />
+          <Accounts network={network} relayUrl={config.relayUrl} />
+        ) : section === 'markets' ? (
+          <Markets />
         ) : (
           <section data-testid={`section-${section}`}>
             <h2>{SECTIONS.find((s) => s.id === section)?.label}</h2>
@@ -172,9 +176,9 @@ export function App() {
   return (
     <StoreProvider>
       <WalletProvider network={config.network}>
-        <ValuationContext.Provider value={faceValueOnly(config.tokens)}>
+        <MarketProvider network={config.network} tokens={config.tokens}>
           <Shell network={config.network} config={config} />
-        </ValuationContext.Provider>
+        </MarketProvider>
       </WalletProvider>
     </StoreProvider>
   );

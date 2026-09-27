@@ -18,7 +18,7 @@ import {
 } from '@mnbank/core';
 
 import { readSepoliaHoldings, walletRpc, type SepoliaHoldings } from '../evm/balances.js';
-import { useValuation } from '../markets/valuation.js';
+import { useMarkets, useTokenRegistry } from '../market/MarketContext.js';
 import {
   openAccount,
   recipientOf,
@@ -156,7 +156,8 @@ function SepoliaSection({ tokens }: { tokens: TokenRegistry | null }) {
 }
 
 function PassportHoldings({ coins, tokens }: { coins: StoredCoin[]; tokens: TokenRegistry | null }) {
-  const value = useValuation();
+  // Stocks are valued at the best live bid of the offer book (plan L-MKT); USDC at face value.
+  const { value } = useMarkets();
   const rows = holdingsByColour(coins).map((h) => ({
     h,
     token: tokens?.byColour(h.color),
@@ -308,15 +309,9 @@ function SendForm({
   );
 }
 
-export function Accounts({
-  network,
-  relayUrl,
-  tokens,
-}: {
-  network: NetworkProfile;
-  relayUrl: string;
-  tokens: TokenRegistry | null;
-}) {
+export function Accounts({ network, relayUrl }: { network: NetworkProfile; relayUrl: string }) {
+  // The bank's token list; the price feed starts only where holdings are valued.
+  const tokens = useTokenRegistry();
   const { store, revision } = useStore();
   const wallet = useWallet();
   const relay = useMemo(() => new RelayClient(relayUrl), [relayUrl]);
