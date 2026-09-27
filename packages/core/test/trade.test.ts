@@ -122,7 +122,7 @@ describe('one coin per payment (Q9)', () => {
 describe('the one-live-offer rule and the warnings (Q9, L-TRD.1, L-TRD.3)', () => {
   const now = Date.parse('2026-09-27T20:00:00Z');
   const live = {
-    state: 'live' as const,
+    status: 'live' as const,
     authNonce: '4',
     expiresAt: now + 30 * 60_000,
     summary: 'sell 2.00 wStkA at 1.05',
@@ -144,7 +144,7 @@ describe('the one-live-offer rule and the warnings (Q9, L-TRD.1, L-TRD.3)', () =
   });
 
   it('nothing to warn about once the offer is filled, expired, or already dead (the nonce moved)', () => {
-    expect(guardSignedAction('withdraw', { ...live, state: 'filled' }, now).kind).toBe('ok');
+    expect(guardSignedAction('withdraw', { ...live, status: 'filled' }, now).kind).toBe('ok');
     expect(guardSignedAction('withdraw', live, live.expiresAt).kind).toBe('ok');
     expect(guardSignedAction('open-swap', live, now, '5').kind).toBe('ok');
     expect(guardSignedAction('withdraw', null, now).kind).toBe('ok');

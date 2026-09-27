@@ -206,7 +206,7 @@ test('L-TRD live through the UI', async ({ page }) => {
       timeout: 15 * 60_000,
     });
     const stages = await stagesSeen(page);
-    const made = (await trades(page)).find((t) => t.role === 'make' && t.state === 'live');
+    const made = (await trades(page)).find((t) => t.role === 'make' && t.status === 'live');
     const status = await (await fetch(`${KERNEL}/v1/offers/${String(made?.offerId)}/status`)).json();
     await evidence('ui-make', {
       account: w.address,
@@ -274,12 +274,12 @@ test('L-TRD live through the UI', async ({ page }) => {
     await evidence('ui-reconcile', {
       account: w.address,
       offerId: made.offerId,
-      state: rec?.state,
+      status: rec?.status,
       settledTx: rec?.settledTx,
       kernelStatus: rec?.kernelStatus,
       seconds: Math.round((Date.now() - t0) / 1000),
     });
-    expect(rec?.state).toBe('filled');
+    expect(rec?.status).toBe('filled');
   } else {
     throw new Error(`unknown phase ${PHASE}`);
   }

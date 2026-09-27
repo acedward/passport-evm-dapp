@@ -57,7 +57,7 @@ const STAGE_TEXT: Record<string, string> = {
   failed: 'Failed',
 };
 
-const STATE_TEXT: Record<TradeRecord['state'], string> = {
+const STATE_TEXT: Record<TradeRecord['status'], string> = {
   live: 'Live',
   filled: 'Filled',
   expired: 'Expired',
@@ -198,7 +198,7 @@ export function Trade({ network, relayUrl }: { network: NetworkProfile; relayUrl
     try {
       const changed = await reconcileOffers(e, accountAddress, kernel);
       if (changed.length === 0) await syncAccount(e, accountAddress);
-      const filled = changed.find((c) => c.state === 'filled');
+      const filled = changed.find((c) => c.status === 'filled');
       if (filled) setMessage({ kind: 'ok', text: `Your offer (${filled.summary}) was filled.` });
     } catch {
       /* the next refresh tries again; the page keeps the last known state */
@@ -615,13 +615,13 @@ export function Trade({ network, relayUrl }: { network: NetworkProfile; relayUrl
                 </tr>
               ) : (
                 trades.map((t) => (
-                  <tr key={`${t.role}-${t.offerId}`} data-testid="my-trade" data-role={t.role} data-state={t.state}>
+                  <tr key={`${t.role}-${t.offerId}`} data-testid="my-trade" data-role={t.role} data-state={t.status}>
                     <td>{new Date(t.createdAt).toISOString().slice(0, 16).replace('T', ' ')}</td>
                     <td>{t.summary}</td>
                     <td>{t.role === 'make' ? 'Your offer' : 'Taken'}</td>
                     <td data-testid="my-trade-state">
-                      {STATE_TEXT[t.state]}
-                      {t.role === 'make' && t.state === 'live' && <small> until {clock(t.expiresAt)}</small>}
+                      {STATE_TEXT[t.status]}
+                      {t.role === 'make' && t.status === 'live' && <small> until {clock(t.expiresAt)}</small>}
                     </td>
                     <td className="mono" title={t.offerId}>
                       {short(t.offerId)}

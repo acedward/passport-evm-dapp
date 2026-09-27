@@ -142,7 +142,7 @@ export async function makeOffer(env: OperationEnv, account: string, legs: OrderL
     wantNonce: payload.wantNonce,
     createdAt: now,
     expiresAt: r.expiresAt,
-    state: r.kernel.status === 'consumed' ? 'filled' : 'live',
+    status: r.kernel.status === 'consumed' ? 'filled' : 'live',
     kernelStatus: r.kernel.status,
     checkedAt: Date.now(),
   };
@@ -176,8 +176,8 @@ export async function takeOffer(
   env.store.put(env.scope, 'coins', coins, { account });
   const trades = readTrades(env.store, env.scope, account);
   for (const other of trades) {
-    if (other.role === 'make' && other.state === 'live')
-      putTrade(env.store, env.scope, account, { ...other, state: 'cancelled' });
+    if (other.role === 'make' && other.status === 'live')
+      putTrade(env.store, env.scope, account, { ...other, status: 'cancelled' });
   }
   const record: TradeRecord = {
     offerId: entry.offerId,
@@ -193,7 +193,7 @@ export async function takeOffer(
     wantNonce: payload.wantNonce,
     createdAt: Date.now(),
     expiresAt: Date.now(),
-    state: 'filled',
+    status: 'filled',
     kernelStatus: 'consumed',
     settledTx: r.txHash,
     checkedAt: Date.now(),
@@ -222,7 +222,7 @@ export async function reconcileOffers(
   // Live offers, and filled ones whose settling transaction the inbox walk has not shown yet (the
   // exchange can report "consumed" a moment before the indexer serves the new inbox entries).
   const makes = readTrades(env.store, env.scope, account).filter(
-    (t) => t.role === 'make' && (t.state === 'live' || (t.state === 'filled' && !t.settledTx)),
+    (t) => t.role === 'make' && (t.status === 'live' || (t.status === 'filled' && !t.settledTx)),
   );
   if (makes.length === 0) return [];
   const synced = await syncAccount(env, account);
@@ -237,14 +237,14 @@ export async function reconcileOffers(
     const received = synced.coins.find((c) => c.nonce === o.wantNonce);
     let next: TradeRecord = { ...o, checkedAt: now, ...(kernelStatus ? { kernelStatus } : {}) };
     if (received || kernelStatus === 'consumed') {
-      next = { ...next, state: 'filled', ...(received?.createdTx ? { settledTx: received.createdTx } : {}) };
+      next = { ...next, status: 'filled', ...(received?.createdTx ? { settledTx: received.createdTx } : {}) };
     } else if (kernelStatus === 'expired' || now >= o.expiresAt) {
-      next = { ...next, state: 'expired' };
+      next = { ...next, status: 'expired' };
     } else if (BigInt(synced.state.authNonce) !== BigInt(o.authNonce)) {
-      next = { ...next, state: 'cancelled' };
+      next = { ...next, status: 'cancelled' };
     }
     putTrade(env.store, env.scope, account, next);
-    if (next.state !== o.state || next.settledTx !== o.settledTx) changed.push(next);
+    if (next.status !== o.status || next.settledTx !== o.settledTx) changed.push(next);
   }
   return changed;
 }
@@ -264,10 +264,24 @@ export function guardFor(
 export function markLiveOffersCancelled(env: Pick<OperationEnv, 'store' | 'scope'>, account: string): number {
   let n = 0;
   for (const t of readTrades(env.store, env.scope, account)) {
-    if (t.role === 'make' && t.state === 'live') {
-      putTrade(env.store, env.scope, account, { ...t, state: 'cancelled' });
+    if (t.role === 'make' && t.status === 'live') {
+      putTrade(env.store, env.scope, account, { ...t, status: 'cancelled' });
       n++;
     }
   }
   return n;
+}
+
+/**
+ * L-TRD.3 for a page: before a signed action, ask the customer to confirm when it would cancel the
+ * account's live offer. True when there is nothing to cancel or the customer confirmed.
+ */
+export function confirmCancelsOffer(
+  env: Pick<OperationEnv, 'store' | 'scope'>,
+  account: string,
+  action: Parameters<typeof guardSignedAction>[0],
+  confirm: (message: string) => boolean = (m) => window.confirm(m),
+): boolean {
+  const g = guardFor(env, account, action);
+  return g.kind === 'ok' || (g.kind === 'warn' && confirm(g.message));
 }

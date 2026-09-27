@@ -454,15 +454,15 @@ export async function resumeTransfer(env: BridgeEnv, recIn: TransferRecord): Pro
 /** Whether the account has a live offer (plan L-TRD keeps `offer` records); filing the change would
  *  cancel it (Q9, Q13 A), so the re-file waits. */
 export function liveOffer(env: Pick<OperationEnv, 'store' | 'scope'>, account: string): boolean {
-  return env.store
-    .list(env.scope)
-    .some(
-      (r) =>
-        r.parsed.kind === 'offer' &&
-        !r.parsed.scope.global &&
-        r.parsed.scope.account === account &&
-        ['live', 'open', 'posted'].includes(String((r.record?.data as { status?: unknown } | undefined)?.status)),
-    );
+  return env.store.list(env.scope).some(
+    (r) =>
+      r.parsed.kind === 'offer' &&
+      !r.parsed.scope.global &&
+      r.parsed.scope.account === account &&
+      ['live', 'open', 'posted'].includes(String((r.record?.data as { status?: unknown } | undefined)?.status)) &&
+      // Plan L-TRD: an offer past its intent's TTL can never settle, so it no longer blocks.
+      !(Number((r.record?.data as { expiresAt?: unknown } | undefined)?.expiresAt ?? Infinity) <= Date.now()),
+  );
 }
 
 /**

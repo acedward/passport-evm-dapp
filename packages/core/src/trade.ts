@@ -167,7 +167,7 @@ export type OfferState =
 
 /** The part of a stored offer the rules read. */
 export interface OfferRuleInput {
-  state: OfferState;
+  status: OfferState;
   /** The auth nonce the offer's signature binds. */
   authNonce: string;
   /** Unix ms after which the ledger refuses the offer's intent. */
@@ -179,7 +179,7 @@ export interface OfferRuleInput {
  * account's CURRENT auth nonce (any other executed call advances it, which kills the offer).
  */
 export function offerStillLive(o: OfferRuleInput, now: number, currentAuthNonce?: string | bigint): boolean {
-  if (o.state !== 'live') return false;
+  if (o.status !== 'live') return false;
   if (now >= o.expiresAt) return false;
   if (currentAuthNonce !== undefined && BigInt(currentAuthNonce) !== BigInt(o.authNonce)) return false;
   return true;

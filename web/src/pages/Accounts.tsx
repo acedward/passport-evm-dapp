@@ -31,7 +31,7 @@ import {
 import { findAccount, listJobs, readCoins, readSecret } from '../passport/records.js';
 import { RelayClient } from '../relay/client.js';
 import { useStore } from '../store/StoreContext.js';
-import { guardFor, markLiveOffersCancelled } from '../trade/operations.js';
+import { confirmCancelsOffer as confirmOffer, markLiveOffersCancelled } from '../trade/operations.js';
 import { useWallet } from '../wallet/WalletContext.js';
 
 const short = (s: string, head = 8, tail = 6) =>
@@ -402,8 +402,7 @@ export function Accounts({ network, relayUrl }: { network: NetworkProfile; relay
   const confirmCancelsOffer = (action: 'withdraw' | 'append-inbox'): boolean => {
     const e = env();
     if (!e || !account) return false;
-    const g = guardFor(e, account.address, action);
-    return g.kind === 'ok' || (g.kind === 'warn' && window.confirm(g.message));
+    return confirmOffer(e, account.address, action);
   };
 
   const send = (color: string, amount: bigint, recipient: string) =>

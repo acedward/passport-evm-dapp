@@ -29,7 +29,8 @@ export interface TradeRecord {
   createdAt: number;
   /** Unix ms after which the ledger refuses the offer (intent TTL). */
   expiresAt: number;
-  state: OfferState;
+  /** The same word L-BRG's change re-file reads (`live` blocks it, Q9). */
+  status: OfferState;
   /** The exchange's last word on it. */
   kernelStatus?: string;
   /** The settling transaction, once known. */
@@ -54,7 +55,7 @@ export const tradeKey = (scope: WalletScope, account: string, t: Pick<TradeRecor
 
 /** The account's live offer, if any (Q9: at most one). */
 export function liveOffer(trades: readonly TradeRecord[], now: number): TradeRecord | null {
-  return trades.find((t) => t.role === 'make' && t.state === 'live' && now < t.expiresAt) ?? null;
+  return trades.find((t) => t.role === 'make' && t.status === 'live' && now < t.expiresAt) ?? null;
 }
 
 /** "sell 2.00 wStkA at 1.05" */

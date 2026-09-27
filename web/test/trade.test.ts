@@ -28,7 +28,8 @@ import { syncAccount, type OperationEnv } from '../src/passport/operations.js';
 import { readCoins, readRoster } from '../src/passport/records.js';
 import type { RelayClient } from '../src/relay/client.js';
 import { LocalStore } from '../src/store/store.js';
-import { guardFor, makeOffer, reconcileOffers, takeOffer } from '../src/trade/operations.js';
+import { liveOffer as bridgeSeesLiveOffer } from '../src/bridge/operations.js';
+import { confirmCancelsOffer, guardFor, makeOffer, reconcileOffers, takeOffer } from '../src/trade/operations.js';
 import { readTrades } from '../src/trade/records.js';
 
 const ACCOUNT = 'ac'.repeat(32);
@@ -222,7 +223,7 @@ describe('make an offer (L-TRD.1)', () => {
     expect(bytesToHex(want!.nonce)).toBe(p.wantNonce);
     expect(change).toMatchObject({ value: 1_000_000n });
     // My offers holds it as live; the coin is NOT spent and the counter does not move.
-    expect(rec).toMatchObject({ role: 'make', state: 'live', summary: 'sell 2.00 wStkA at 1.05' });
+    expect(rec).toMatchObject({ role: 'make', status: 'live', summary: 'sell 2.00 wStkA at 1.05' });
     expect(readCoins(e.store, e.scope, ACCOUNT).every((c) => !c.spent)).toBe(true);
     expect(readRoster(e.store, e.scope, ACCOUNT)).toEqual({ useCounter: '0' });
   });
@@ -248,6 +249,38 @@ describe('make an offer (L-TRD.1)', () => {
     expect(relay.submitted).toHaveLength(1);
     // And a withdrawal would warn that it cancels the offer (L-TRD.3).
     expect(guardFor(e, ACCOUNT, 'withdraw')).toMatchObject({ kind: 'warn' });
+  });
+
+  it("uses L-BRG's offer-record shape: a live offer defers the bridge's change re-file, an expired one does not", async () => {
+    const { relay, e } = await setup();
+    relay.results['open-swap'] = {
+      offerId: 'f0'.repeat(32),
+      kernel: { accepted: true, status: 'live', code: null, reason: null },
+      legSegment: 0,
+      proveSeconds: 1,
+      expiresAt: Date.now() + 3_600_000,
+      bytes: 1,
+    };
+    await makeOffer(e, ACCOUNT, orderLegs('sell', STOCK, USDC, 2n * U, parsePrice('1.05', USDC)), {
+      stock: STOCK,
+      usdc: USDC,
+    });
+    expect(bridgeSeesLiveOffer(e, ACCOUNT)).toBe(true);
+    // Every signed action asks first; declining stops it (the bridge starts included, L-TRD.3).
+    const asked: string[] = [];
+    for (const a of ['bridge-deposit', 'bridge-withdraw', 'append-inbox', 'withdraw', 'take'] as const) {
+      expect(confirmCancelsOffer(e, ACCOUNT, a, (m) => (asked.push(m), false))).toBe(false);
+    }
+    expect(asked).toHaveLength(5);
+    const [rec] = readTrades(e.store, e.scope, ACCOUNT);
+    e.store.put(
+      e.scope,
+      'offer',
+      { ...rec!, expiresAt: Date.now() - 1 },
+      { account: ACCOUNT, id: `make-${rec!.offerId}` },
+    );
+    expect(bridgeSeesLiveOffer(e, ACCOUNT)).toBe(false);
+    expect(confirmCancelsOffer(e, ACCOUNT, 'bridge-withdraw', () => false)).toBe(true);
   });
 
   it('refuses an offer bigger than any single coin, naming the largest payment', async () => {
@@ -288,7 +321,7 @@ describe('take an offer (L-TRD.2)', () => {
       wantAmount: '5000000',
       coin: { nonce: '03'.repeat(32), value: '6000000' }, // 6 covers 5.25; 8 would leave more change
     });
-    expect(rec).toMatchObject({ role: 'take', state: 'filled', settledTx: 'aa'.repeat(32), side: 'buy' });
+    expect(rec).toMatchObject({ role: 'take', status: 'filled', settledTx: 'aa'.repeat(32), side: 'buy' });
     expect(readRoster(e.store, e.scope, ACCOUNT)).toEqual({ useCounter: '3' });
   });
 
@@ -324,7 +357,7 @@ describe('take an offer (L-TRD.2)', () => {
       },
     );
     const own = readTrades(e.store, e.scope, ACCOUNT).find((t) => t.role === 'make')!;
-    expect(own.state).toBe('cancelled');
+    expect(own.status).toBe('cancelled');
   });
 
   it('an offer too big for any coin is refused before the wallet is asked', async () => {
@@ -373,7 +406,7 @@ describe('reconciling My offers (FR-011: whoever settles it)', () => {
     relay.state.authNonce = '5';
     const changed = await reconcileOffers(e, ACCOUNT, { offerStatus: async () => 'consumed' as const });
     expect(changed).toHaveLength(1);
-    expect(changed[0]).toMatchObject({ offerId: rec.offerId, state: 'filled', settledTx: 'settle-tx' });
+    expect(changed[0]).toMatchObject({ offerId: rec.offerId, status: 'filled', settledTx: 'settle-tx' });
     const usdc = readCoins(e.store, e.scope, ACCOUNT).filter((c) => c.color === USDC.midnightColour && !c.spent);
     expect(usdc.map((c) => c.value).sort()).toEqual(['2100000', '6000000', '8000000']);
   });
@@ -394,13 +427,13 @@ describe('reconciling My offers (FR-011: whoever settles it)', () => {
     });
     const consumed = { offerStatus: async () => 'consumed' as const };
     const [first] = await reconcileOffers(e, ACCOUNT, consumed);
-    expect(first).toMatchObject({ state: 'filled' });
+    expect(first).toMatchObject({ status: 'filled' });
     expect(first!.settledTx).toBeUndefined();
     const payload = relay.submitted[0]!.request.payload as { wantNonce: string };
     await addInbox(relay, pk, [{ nonce: payload.wantNonce, color: USDC.midnightColour, value: 2_100_000n }]);
     relay.zswapActivity.outputs.at(-1)!.txHash = 'late-tx';
     const [second] = await reconcileOffers(e, ACCOUNT, consumed);
-    expect(second).toMatchObject({ state: 'filled', settledTx: 'late-tx' });
+    expect(second).toMatchObject({ status: 'filled', settledTx: 'late-tx' });
   });
 
   it('marks it cancelled when another signed call moved the nonce, and expired after its TTL', async () => {
@@ -419,7 +452,7 @@ describe('reconciling My offers (FR-011: whoever settles it)', () => {
     });
     relay.state.authNonce = '5';
     const [c] = await reconcileOffers(e, ACCOUNT, { offerStatus: async () => 'live' as const });
-    expect(c).toMatchObject({ state: 'cancelled' });
+    expect(c).toMatchObject({ status: 'cancelled' });
 
     const second = await setup();
     second.relay.results['open-swap'] = {
@@ -440,6 +473,6 @@ describe('reconciling My offers (FR-011: whoever settles it)', () => {
       { offerStatus: async () => 'live' as const },
       Date.now() + 5000,
     );
-    expect(x).toMatchObject({ state: 'expired' });
+    expect(x).toMatchObject({ status: 'expired' });
   });
 });
