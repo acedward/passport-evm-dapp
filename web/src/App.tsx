@@ -7,6 +7,8 @@ import { useEffect, useState } from 'react';
 import type { NetworkProfile } from '@mnbank/core';
 
 import { loadSiteConfig, type SiteConfig } from './config.js';
+import { ValuationContext, faceValueOnly } from './markets/valuation.js';
+import { Accounts } from './pages/Accounts.js';
 import { LocalData } from './pages/LocalData.js';
 import { StoreProvider, useStore } from './store/StoreContext.js';
 import { WalletProvider, useWallet } from './wallet/WalletContext.js';
@@ -106,7 +108,7 @@ function ProfileRecorder({ network }: { network: string }) {
   return null;
 }
 
-function Shell({ network }: { network: NetworkProfile }) {
+function Shell({ network, config }: { network: NetworkProfile; config: SiteConfig }) {
   const [section, setSection] = useState<SectionId>(sectionFromHash);
   useEffect(() => {
     const on = () => setSection(sectionFromHash());
@@ -145,6 +147,8 @@ function Shell({ network }: { network: NetworkProfile }) {
       <main>
         {section === 'local' ? (
           <LocalData network={network.name} />
+        ) : section === 'accounts' ? (
+          <Accounts network={network} relayUrl={config.relayUrl} tokens={config.tokens} />
         ) : (
           <section data-testid={`section-${section}`}>
             <h2>{SECTIONS.find((s) => s.id === section)?.label}</h2>
@@ -168,7 +172,9 @@ export function App() {
   return (
     <StoreProvider>
       <WalletProvider network={config.network}>
-        <Shell network={config.network} />
+        <ValuationContext.Provider value={faceValueOnly(config.tokens)}>
+          <Shell network={config.network} config={config} />
+        </ValuationContext.Provider>
       </WalletProvider>
     </StoreProvider>
   );
