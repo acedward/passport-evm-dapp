@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { OFFER_HRP, OfferCodecError, decodeOffer, encodeOffer, offerIdOf } from './offer-codec.js';
+import { OFFER_HRP, OfferCodecError, decodeOffer, encodeOffer, offerIdOf } from '../src/market/offer-file.js';
 
 // Computed with @effectstream/mip-zswap-offer 0.4.0-v9.0 (`OfferFiles.encode` / `offerId`), the
 // kernel's own codec, inside the stack image: bytes[i] = (i * 37 + 11) & 0xff, i < 120.
