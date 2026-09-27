@@ -45,10 +45,27 @@ up() {
   x 'node --version && bun --version'
 }
 
-sync() {
+copy_tree() {
   # Keep node_modules and the generated contract output; replace every other file.
   x 'find . -mindepth 1 \( -path ./node_modules -o -path ./.tools -o -path ./vendor/passport/contract/contracts/managed -o -path ./vendor/passport/contract/contracts/erc20-vault/managed -o -path ./vendor/passport/contract/contracts/erc20-vault/node_modules \) -prune -o \( -type f -o -type l \) -print0 | xargs -0 rm -f'
   x 'cd /src && tar cf - --exclude=./node_modules --exclude=.git --exclude=./.tools --exclude=dist --exclude=test-results --exclude=playwright-report --exclude=./vendor/passport/contract/contracts/managed --exclude=./vendor/passport/contract/contracts/erc20-vault/managed --exclude=./vendor/passport/contract/contracts/erc20-vault/node_modules . | (cd /app && tar xf -)'
+}
+
+sync() {
+  # A bind mount can serve a stale copy of a file edited a moment ago, so check the copy against
+  # the host's own hashes of every file git knows about, and copy again until they agree.
+  local list="$ROOT/.git/docker-check-sync.sha"
+  (cd "$ROOT" && git ls-files -co --exclude-standard -z | grep -zv '^vendor/' | xargs -0 shasum -a 256) >"$list"
+  docker cp "$list" "$C:/tmp/host.sha" >/dev/null
+  rm -f "$list"
+  for attempt in 1 2 3 4 5; do
+    copy_tree
+    if x 'sha256sum --quiet -c /tmp/host.sha >/dev/null 2>&1'; then return 0; fi
+    echo "sync: the copy is stale (attempt $attempt); copying again" >&2
+    sleep 1
+  done
+  echo "sync: the copy never matched the host" >&2
+  return 1
 }
 
 cmd="${1:-all}"
@@ -63,12 +80,22 @@ case "$cmd" in
   run) x "$*" ;;
   fix)
     sync
-    x 'npx prettier --write . --log-level warn && npx eslint --fix . || true'
-    # copy back every file git knows about (tracked or new, not ignored), except the submodule
-    (cd "$ROOT" && git ls-files -co --exclude-standard | grep -v '^vendor/') >"$ROOT/.git/docker-check-files"
-    docker cp "$ROOT/.git/docker-check-files" "$C:/tmp/files"
-    docker exec -w /app "$C" tar cf - -T /tmp/files | tar xf - -C "$ROOT"
-    rm -f "$ROOT/.git/docker-check-files"
+    # Hash every file before and after formatting, and copy back ONLY the files the formatter
+    # changed, and only while the host copy is still the one that was formatted: a bind mount can
+    # serve a stale copy for a moment, and a fix must never overwrite a newer edit.
+    x 'find . -path ./node_modules -prune -o -path ./vendor -prune -o -path ./.tools -prune -o -type f -print0 | xargs -0 sha256sum > /tmp/before.sha'
+    x 'npx prettier --write . --log-level warn; npx eslint --fix . || true'
+    x 'sha256sum -c /tmp/before.sha 2>/dev/null | grep ": FAILED$" | sed "s/: FAILED$//" > /tmp/changed || true; while read -r f; do printf "%s %s\n" "$(grep -F "  $f" /tmp/before.sha | head -1 | cut -d" " -f1)" "$f"; done < /tmp/changed > /tmp/changed.sha'
+    docker exec "$C" cat /tmp/changed.sha | while read -r before path; do
+      rel="${path#./}"
+      host="$(shasum -a 256 "$ROOT/$rel" 2>/dev/null | cut -d' ' -f1)"
+      if [[ "$host" == "$before" ]]; then
+        docker exec -w /app "$C" cat "$rel" >"$ROOT/$rel"
+        echo "fixed $rel"
+      else
+        echo "skipped $rel (changed on the host since the sync; run fix again)" >&2
+      fi
+    done
     ;;
   all)
     up
