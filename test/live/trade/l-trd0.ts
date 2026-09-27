@@ -787,7 +787,7 @@ async function verify(): Promise<void> {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        query: `query($h: String!) { transactions(offset: { hash: $h }) { hash block { height timestamp } } }`,
+        query: `query($h: HexEncoded!) { transactions(offset: { hash: $h }) { hash block { height timestamp } ... on RegularTransaction { fee } } }`,
         variables: { h: norm(txHash) },
       }),
     });
