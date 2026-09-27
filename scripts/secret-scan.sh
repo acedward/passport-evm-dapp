@@ -28,8 +28,14 @@ gitleaks_run() { # <mode> <path relative to ROOT> [extra flags]
 
 # Self-test: random fake secrets (generated now, removed on exit) must trip every custom rule.
 selftest="$ROOT/test-results/secret-scan-selftest"
+made_results=0
+[[ -d "$ROOT/test-results" ]] || made_results=1
 rm -rf "$selftest" && mkdir -p "$selftest"
-trap 'rm -rf "$selftest"' EXIT
+cleanup() {
+  rm -rf "$selftest"
+  if [[ "$made_results" == 1 ]]; then rmdir "$ROOT/test-results" 2>/dev/null || true; fi
+}
+trap cleanup EXIT
 rnd() { od -An -N"$1" -tx1 /dev/urandom | tr -d ' \n'; }
 words=(abandon ability absorb abstract absurd access accident account accuse achieve acid acoustic acquire across action actor actress actual adapt addict address adjust admit adult)
 phrase="$(for i in $(seq 1 24); do printf '%s ' "${words[$((RANDOM % ${#words[@]}))]}"; done)"
@@ -45,7 +51,7 @@ for rule in env-style-wallet-secret bip39-mnemonic-labelled keyed-rpc-url labell
   case " $rules " in *" $rule "*) ;; *) echo "secret-scan: self-test FAILED: rule $rule did not catch its planted fake" >&2; exit 2 ;; esac
 done
 echo "secret-scan: self-test PASS (every custom rule caught its planted fake)"
-rm -rf "$selftest"
+cleanup
 
 echo "secret-scan: gitleaks over the git history"
 gitleaks_run git .
