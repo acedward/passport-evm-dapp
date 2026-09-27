@@ -12,3 +12,5 @@ packages/core/src/passport/vendor/offer-codec.ts
 packages/core/src/passport/vendor/signet-derive.ts
 # Prose and tables are formatted by hand
 *.md
+# Kernel responses captured verbatim from the staging exchange; never reformat
+packages/core/test/fixtures/kernel/staging-*/
