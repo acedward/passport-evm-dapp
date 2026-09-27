@@ -104,6 +104,8 @@ function injectedWallet(w: BaseWallet, onSign?: () => void) {
   const calls: string[] = [];
   const provider = {
     async request({ method, params }: { method: string; params?: unknown }) {
+      // The chain check before a signature is a read, not a prompt (plan P4-A): not recorded.
+      if (method === 'eth_chainId') return '0xaa36a7';
       calls.push(method);
       if (method !== 'eth_signTypedData_v4') throw new Error(`unexpected ${method}`);
       onSign?.();
@@ -176,7 +178,7 @@ describe('openAccount (L-ACC.1)', () => {
     relay.failNext = 'the bank is busy';
     const { provider } = injectedWallet(w);
     const e = env(w, relay, provider);
-    await expect(openAccount(e, 'ee'.repeat(32))).rejects.toThrow('the bank is busy');
+    await expect(openAccount(e, 'ee'.repeat(32))).rejects.toThrow('The bank is busy.');
     const pending = readSecret(e.store, e.scope, null)!;
     expect(pending.pending).toBe(true);
     relay.results.register = { account: ACCOUNT, device: w.address.toLowerCase(), txs: {}, seconds: {} };

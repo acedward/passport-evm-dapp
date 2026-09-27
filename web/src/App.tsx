@@ -28,6 +28,8 @@ import { Markets } from './pages/Markets.js';
 import { Trade } from './pages/Trade.js';
 import { Transfers } from './pages/Transfers.js';
 import { findAccount } from './passport/records.js';
+import { BankNotices, BankStatusProvider } from './relay/BankStatus.js';
+import { storageText } from './store/messages.js';
 import { StoreProvider, useStore } from './store/StoreContext.js';
 import { WalletProvider, useWallet } from './wallet/WalletContext.js';
 
@@ -186,26 +188,42 @@ function Shell({ network, config }: { network: NetworkProfile; config: SiteConfi
   const { status } = useStore();
   const wallet = useWallet();
   const pending = SECTIONS.find((s) => s.id === section)?.label ?? '';
+  const wrongNetwork = wallet.status === 'connected' && !wallet.onRightChain;
+  const storage = status === 'ok' ? null : storageText(status);
   return (
     <div className="app">
       <Masthead>
         <Identity network={network} />
       </Masthead>
       <TabNav items={SECTIONS} current={section} />
-      {(status !== 'ok' || wallet.error) && (
-        <div className="wrap app-banner">
-          {status !== 'ok' && (
-            <Notice tone="danger" role="alert" data-testid="storage-banner">
-              This browser is not letting MN Bank keep data, so you cannot open or use an account here.
-            </Notice>
-          )}
-          {wallet.error && (
-            <Notice tone="danger" role="alert" data-testid="wallet-error">
-              {wallet.error}
-            </Notice>
-          )}
-        </div>
-      )}
+      <div className="wrap app-banner app-banner-stack">
+        {storage && (
+          <Notice tone="danger" role="alert" title={storage.title} data-testid="storage-banner" data-status={status}>
+            {storage.text}
+          </Notice>
+        )}
+        {wrongNetwork && (
+          <Notice tone="warning" role="alert" title="Your wallet is on another network." data-testid="wrong-network">
+            MN Bank works on {network.evm.chainName}
+            {wallet.chainId ? ` (your wallet is on chain ${parseInt(wallet.chainId, 16) || wallet.chainId})` : ''}.
+            Nothing will be signed or sent until you switch.{' '}
+            <Button
+              variant="secondary"
+              size="small"
+              data-testid="wrong-network-switch"
+              onClick={() => void wallet.switchNetwork()}
+            >
+              Switch to {network.evm.chainName}
+            </Button>
+          </Notice>
+        )}
+        {wallet.error && (
+          <Notice tone="danger" role="alert" data-testid="wallet-error">
+            {wallet.error}
+          </Notice>
+        )}
+        <BankNotices place="shell" />
+      </div>
       <main className="wrap">
         {section === 'local' ? (
           <LocalData network={network.name} />
@@ -255,11 +273,13 @@ export function App() {
   return (
     <StoreProvider>
       <WalletProvider network={config.network}>
-        <MarketProvider network={config.network} tokens={config.tokens}>
-          <TransfersProvider network={config.network} relayUrl={config.relayUrl}>
-            <Shell network={config.network} config={config} />
-          </TransfersProvider>
-        </MarketProvider>
+        <BankStatusProvider relayUrl={config.relayUrl}>
+          <MarketProvider network={config.network} tokens={config.tokens}>
+            <TransfersProvider network={config.network} relayUrl={config.relayUrl}>
+              <Shell network={config.network} config={config} />
+            </TransfersProvider>
+          </MarketProvider>
+        </BankStatusProvider>
       </WalletProvider>
     </StoreProvider>
   );

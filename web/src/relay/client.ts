@@ -6,7 +6,11 @@ import {
   API_PATHS,
   AccountStateViewSchema,
   ApiErrorSchema,
+  BridgeClosedResponseSchema,
   BridgeQuoteSchema,
+  HealthResponseSchema,
+  type BridgeClosedResponse,
+  type HealthResponse,
   type BridgeKind,
   type BridgeQuote,
   InboxPageSchema,
@@ -22,15 +26,22 @@ import {
   type ZswapActivity,
 } from '@mnbank/core';
 
+import { relayErrorText } from './messages.js';
+
+/** A refusal or failure of the relay. `message` is the customer's sentence (./messages.ts);
+ *  `relayMessage` is what the relay said. */
 export class RelayError extends Error {
   override name = 'RelayError';
+  readonly relayMessage: string;
   constructor(
     readonly status: number,
     readonly code: string,
     message: string,
     readonly detail?: string,
+    readonly retryAfterSeconds: number | null = null,
   ) {
-    super(message);
+    super(relayErrorText({ status, code, message, ...(detail ? { detail } : {}), retryAfterSeconds }));
+    this.relayMessage = message;
   }
 }
 
@@ -49,14 +60,16 @@ export class RelayClient {
     try {
       res = await this.fetchImpl(this.url(path), { cache: 'no-store', ...init });
     } catch {
-      throw new RelayError(0, 'unreachable', 'The bank could not be reached. Check your connection and try again.');
+      throw new RelayError(0, 'unreachable', 'The bank could not be reached.');
     }
     const body: unknown = await res.json().catch(() => null);
     if (!res.ok) {
       const e = ApiErrorSchema.safeParse(body);
+      const retry = Number(res.headers.get('retry-after') ?? '');
+      const retryAfter = Number.isFinite(retry) && retry > 0 ? retry : null;
       throw e.success
-        ? new RelayError(res.status, e.data.error.code, e.data.error.message, e.data.error.detail)
-        : new RelayError(res.status, 'error', `The bank answered ${res.status}.`);
+        ? new RelayError(res.status, e.data.error.code, e.data.error.message, e.data.error.detail, retryAfter)
+        : new RelayError(res.status, 'error', '', undefined, retryAfter);
     }
     return body;
   }
@@ -121,6 +134,31 @@ export class RelayClient {
     const q = new URLSearchParams({ kind, account });
     if (erc20) q.set('erc20', erc20);
     return BridgeQuoteSchema.parse(await this.call(`${API_PATHS.bridgeQuote}?${q.toString()}`));
+  }
+
+  /** The bank's health (FR-013): what is paused and why (plan P4-A error states). A down relay
+   *  answers 503 with the same body. */
+  async health(): Promise<HealthResponse> {
+    let res: Response;
+    try {
+      res = await this.fetchImpl(this.url(API_PATHS.health), { cache: 'no-store' });
+    } catch {
+      throw new RelayError(0, 'unreachable', 'The bank could not be reached.');
+    }
+    const body: unknown = await res.json().catch(() => null);
+    const h = HealthResponseSchema.safeParse(body);
+    if (!h.success) throw new RelayError(res.status, 'error', '');
+    return h.data;
+  }
+
+  /** How the bank closed a transfer recently, or null when it did not (plan P4-A, Q21 A). */
+  async bridgeClosed(requestId: string): Promise<BridgeClosedResponse | null> {
+    try {
+      return BridgeClosedResponseSchema.parse(await this.call(API_PATHS.bridgeClosed(requestId)));
+    } catch (e) {
+      if (e instanceof RelayError && e.status === 404) return null;
+      throw e;
+    }
   }
 
   async zswap(account: string): Promise<ZswapActivity> {

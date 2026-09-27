@@ -28,6 +28,7 @@ import {
   queuedDepositPreflight,
   relayActionTypedData,
   withdrawPreflight,
+  type BridgeClosedResponse,
   type BridgeDepositPayload,
   type BridgeQuote,
   type BridgeResult,
@@ -48,6 +49,7 @@ import {
 
 import {
   OperationError,
+  ensureChain,
   gatedContext,
   secureChange,
   signTypedData,
@@ -55,6 +57,7 @@ import {
   type OperationEnv,
 } from '../passport/operations.js';
 import { readCoins } from '../passport/records.js';
+import { jobErrorText } from '../relay/messages.js';
 import {
   broadcast,
   inFlight,
@@ -116,6 +119,7 @@ export async function sepoliaBalances(
 
 /** Send one Sepolia transaction from the connected wallet and wait for it to be mined. */
 async function sendAndWait(env: BridgeEnv, tx: Record<string, string>, onHash: (h: string) => void): Promise<string> {
+  await ensureChain(env);
   const hash = await env.provider.request({ method: 'eth_sendTransaction', params: [{ from: env.owner, ...tx }] });
   if (typeof hash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(hash))
     throw new OperationError('The wallet did not send the transaction.');
@@ -376,25 +380,86 @@ export function applyJob(env: BridgeEnv, rec: TransferRecord, job: JobView): Tra
   } else if (job.state === 'failed') {
     const resumable = ['mpc-timeout', 'attestation-timeout'].includes(job.error?.code ?? '') && !!next.requestId;
     next.state = resumable ? 'needs-resume' : 'failed';
-    next.error = job.error ?? { code: 'failed', message: 'The bank could not complete this transfer.' };
+    next.error = job.error
+      ? { code: job.error.code, message: jobErrorText(job.error, 'The bank could not complete this transfer.') }
+      : { code: 'failed', message: 'The bank could not complete this transfer.' };
   } else {
     next.state = 'running';
   }
   return writeTransfer(env.store, env.scope, next);
 }
 
+/** How often a transfer waiting to be resumed asks whether the bank closed it meanwhile (ms). */
+export const CLOSED_CHECK_MS = 60_000;
+
 /**
- * One poll of a running transfer. When the relay no longer knows the job (it restarted), the
- * transfer becomes `needs-resume` if its start landed; the vault is asked for this account's open
- * requests first, in case the start landed while the relay was going down.
+ * The bank closed this transfer's request (a stale request it closed for the customer, Q21 A, or
+ * one whose job this page lost): record the outcome. A coin it minted (a deposit, a refund) is
+ * found by the inbox walk that follows every finished transfer.
+ */
+function closedByBank(env: BridgeEnv, rec: TransferRecord, c: BridgeClosedResponse): TransferRecord {
+  const result: BridgeResult = {
+    kind: c.kind,
+    account: rec.account,
+    requestId: c.requestId,
+    startTx: null,
+    attested: c.attested,
+    evmTxHash: c.evmTxHash,
+    settleTx: c.settleTx,
+    settleCircuit: c.settleCircuit,
+    coin: null,
+    change: rec.change?.coin ?? null,
+    entryMatchesCoin: true,
+    closedBy: c.closedBy,
+  };
+  const next: TransferRecord = {
+    ...rec,
+    state: 'succeeded',
+    result,
+    stages: mergeStages(rec.stages, [
+      {
+        stage: c.settleCircuit === 'abandonDeposit' ? 'abandoned' : 'settled',
+        at: c.closedAt,
+        detail: { tx: c.settleTx, circuit: c.settleCircuit, ...(c.closedBy === 'relay' ? { by: 'bank' } : {}) },
+      },
+    ]),
+  };
+  delete next.error;
+  return writeTransfer(env.store, env.scope, next);
+}
+
+/** Whether the bank closed `rec`'s request; null when not (or the bank cannot say). */
+async function closedOutcome(env: BridgeEnv, rec: TransferRecord): Promise<BridgeClosedResponse | null> {
+  if (!rec.requestId) return null;
+  try {
+    const c = await env.relay.bridgeClosed(rec.requestId);
+    return c && c.kind === rec.kind ? c : null;
+  } catch {
+    return null; // the bank cannot say right now: the next poll asks again
+  }
+}
+
+/**
+ * One poll of a transfer in flight. When the relay no longer knows the job (it restarted), the
+ * transfer becomes `needs-resume` if its start landed (unless the bank already closed it); the
+ * vault is asked for this account's open requests first, in case the start landed while the relay
+ * was going down. A transfer that needs resuming asks, about once a minute, whether the bank
+ * closed it meanwhile (plan P4-A: the relay closes requests left open).
  */
 export async function pollTransfer(env: BridgeEnv, recIn: TransferRecord): Promise<TransferRecord> {
   const rec = readTransfer(env.store, env.scope, recIn.account, recIn.id) ?? recIn;
+  if (rec.state === 'needs-resume') {
+    if (rec.closedCheckAt && Date.now() - rec.closedCheckAt < CLOSED_CHECK_MS) return rec;
+    const c = await closedOutcome(env, rec);
+    return c ? closedByBank(env, rec, c) : writeTransfer(env.store, env.scope, { ...rec, closedCheckAt: Date.now() });
+  }
   if (rec.state !== 'running') return rec;
   const jobId = rec.jobIds.at(-1);
   if (!jobId) return rec;
   const job = await env.relay.job(jobId);
   if (job) return applyJob(env, rec, job);
+  const closed = await closedOutcome(env, rec);
+  if (closed) return closedByBank(env, rec, closed);
   let requestId = rec.requestId;
   if (!requestId) {
     const q = await env.relay.bridgeQuote(rec.kind, rec.account, rec.erc20).catch(() => null);
