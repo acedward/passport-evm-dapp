@@ -1,13 +1,15 @@
 // The application shell: brand, wallet connection and the five sections. The layout and styling
 // are deliberately plain; the MN Bank design (P1.5) replaces them once the owner approves the
-// mockup (question Q16). The Local data section is complete; the other four arrive with the lanes.
+// mockup (question Q16). Local data and Markets are complete; the other three arrive with the lanes.
 
 import { useEffect, useState } from 'react';
 
 import type { NetworkProfile } from '@mnbank/core';
 
 import { loadSiteConfig, type SiteConfig } from './config.js';
+import { MarketProvider } from './market/MarketContext.js';
 import { LocalData } from './pages/LocalData.js';
+import { Markets } from './pages/Markets.js';
 import { StoreProvider, useStore } from './store/StoreContext.js';
 import { WalletProvider, useWallet } from './wallet/WalletContext.js';
 
@@ -145,6 +147,8 @@ function Shell({ network }: { network: NetworkProfile }) {
       <main>
         {section === 'local' ? (
           <LocalData network={network.name} />
+        ) : section === 'markets' ? (
+          <Markets />
         ) : (
           <section data-testid={`section-${section}`}>
             <h2>{SECTIONS.find((s) => s.id === section)?.label}</h2>
@@ -168,7 +172,9 @@ export function App() {
   return (
     <StoreProvider>
       <WalletProvider network={config.network}>
-        <Shell network={config.network} />
+        <MarketProvider network={config.network} tokens={config.tokens}>
+          <Shell network={config.network} />
+        </MarketProvider>
       </WalletProvider>
     </StoreProvider>
   );

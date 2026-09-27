@@ -6,5 +6,6 @@ export * from './amount.js';
 export * from './api.js';
 export * from './auth.js';
 export * from './hex.js';
+export * from './market/index.js';
 export * from './network.js';
 export * from './tokens/registry.js';

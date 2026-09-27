@@ -8,10 +8,13 @@ export interface SiteConfig {
   network: NetworkProfile;
   /** The relay's base URL ('' until the lanes call it). */
   relayUrl: string;
+  /** The token list (USDC and stock roles) when the network has no built-in one, for example the
+   *  local stack's colours; stagenet's comes from the vendored PR #4 records. */
+  tokens?: unknown;
 }
 
 export async function loadSiteConfig(fetchImpl: typeof fetch = fetch): Promise<SiteConfig> {
-  let raw: { network?: unknown; relayUrl?: unknown; overrides?: unknown } = {};
+  let raw: { network?: unknown; relayUrl?: unknown; overrides?: unknown; tokens?: unknown } = {};
   try {
     const res = await fetchImpl('./config.json', { cache: 'no-store' });
     if (res.ok) raw = (await res.json()) as typeof raw;
@@ -20,5 +23,9 @@ export async function loadSiteConfig(fetchImpl: typeof fetch = fetch): Promise<S
   }
   const name = typeof raw.network === 'string' ? raw.network : 'stagenet';
   const overrides = raw.overrides && typeof raw.overrides === 'object' ? (raw.overrides as NetworkOverrides) : {};
-  return { network: resolveNetwork(name, overrides), relayUrl: typeof raw.relayUrl === 'string' ? raw.relayUrl : '' };
+  return {
+    network: resolveNetwork(name, overrides),
+    relayUrl: typeof raw.relayUrl === 'string' ? raw.relayUrl : '',
+    ...(raw.tokens !== undefined ? { tokens: raw.tokens } : {}),
+  };
 }

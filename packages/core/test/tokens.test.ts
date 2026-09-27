@@ -10,9 +10,9 @@ const deployments = (name: string) => fileURLToPath(new URL(`../src/tokens/deplo
 const sha256 = (path: string) => createHash('sha256').update(readFileSync(path)).digest('hex');
 
 describe('vendored deployment records', () => {
-  it('are byte-identical to acedward/passport @ 2178b57 (PROVENANCE.md)', () => {
+  it('are byte-identical to acedward/passport @ 07d8ea4 (PROVENANCE.md)', () => {
     expect(sha256(deployments('stagenet-vault.json'))).toBe(
-      'a32253517be6dfd45a7c12fca2c12622514eed9834d60c49898b92c8ba653e3f',
+      '5a0a2538d12ed8e1814fbf97c410bebcc333ab737316960673d58f0005ea4d4c',
     );
     expect(sha256(deployments('sepolia-stk.json'))).toBe(
       '0c9718001ad5e58ef7fb46de740ba1c9cd452d5257a465c6a4ada99918e7bee7',
@@ -45,13 +45,13 @@ describe('the stagenet registry', () => {
     for (const t of r.tokens) {
       expect(t.decimals).toBe(6);
       expect(t.vault).toBe('7771c9e53afb45291ae2cecd48b5d55262734b08a98fc8276ed0f980031cd637');
-      expect(t.source?.commit).toBe('2178b57a5b9ad7d106aa188d80309b7101697824');
+      expect(t.source?.commit).toBe('07d8ea4f4e83ad264b3d2eef536be02047308827');
     }
   });
 
-  it('keeps USDC provisional until the canonical list, and the stocks confirmed', () => {
-    expect(r.usdc().provisional).toBe(true);
-    expect(r.stocks().every((t) => !t.provisional)).toBe(true);
+  it('marks every entry confirmed: PR #4 lists them as canonical at 07d8ea4, USDC included', () => {
+    expect(r.usdc().provisional).toBe(false);
+    expect(r.tokens.every((t) => !t.provisional)).toBe(true);
   });
 
   it('looks tokens up by colour and address in any case', () => {

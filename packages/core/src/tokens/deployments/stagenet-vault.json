@@ -153,7 +153,7 @@
   "depositAddresses": {
     "c6a35196428ac58a956e93e0c3c7c7df254e428a827291e9111fde7037cd34a1": "0x5f89AB8632a7Cf386a32a1634D4F23312c0F3714"
   },
-  "updatedUtc": "2026-09-27T15:09:32.097Z",
+  "updatedUtc": "2026-09-27T16:07:02.223Z",
   "withdrawRuns": [
     {
       "token": "stkA",
@@ -207,6 +207,26 @@
       "sepoliaSweepTx": "0xd4a77efea68cb3414d97ba21f2a83a85f2ef6fe037b838f615258d467ec73c69",
       "completeDepositTx": "00af812eb322a9f357c49c90a025f727bd0313403091703c694f41f994f4d1cbb8",
       "minted": "50000000"
+    },
+    {
+      "run": "stkA-p8",
+      "token": "stkA",
+      "amount": "10000000000",
+      "requestId": "1c01627f91dbbd88e90890daa413c0ed496a962a0f89f4290206de16763e6000",
+      "startDepositTx": "0013d90ab8978883b1855262d576ae1310cd17f96f9304b0877b267d462cdd2d9c",
+      "sepoliaSweepTx": "0xf334cc13d5d77702494d3c990f1fa69892302b1ffbd89f74df14b8ac6a43277c",
+      "completeDepositTx": "00819f00493c290f0d2724685ad2c103ae976b92bbd7bca565fe8f25a5de0571e7",
+      "minted": "10000000000"
+    },
+    {
+      "run": "stkB-p8",
+      "token": "stkB",
+      "amount": "10000000000",
+      "requestId": "e561a5f93243f09c20f37a925cd7790cd9bf0f66ed97320e262e433b8260d400",
+      "startDepositTx": "0066b0d5798882d809e59a61dd1158d7751319e84adb8608ad403dbfe532658e4b",
+      "sepoliaSweepTx": "0x9ba59fabd459ffc6640aa6518dcd5f6c8f95cb1abec0f2e9fdb1070dbbe644cf",
+      "completeDepositTx": "008659838d97dd503cc85cda5ca4fc4b2424520ebf08c0a888b12a3e2699e95561",
+      "minted": "10000000000"
     }
   ]
 }
