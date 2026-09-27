@@ -55,7 +55,13 @@ async function main(): Promise<void> {
   const deployed = deployedVerifierKeys(config.network.name, config.network.bridge.vaultAddress);
   const keys = () => checkKeyVolume(config.managedPath, config.keysFingerprint, RELAY_PROVEN_CIRCUITS, deployed);
   const keyCheck = keys();
-  if (config.managedPath) {
+  if (config.managedPath && !keyCheck.present && !config.requireKeys) {
+    // The image names a default key path; with nothing mounted there the relay runs keyless (CI,
+    // UI development). A deployment sets RELAY_REQUIRE_KEYS=true so a missing volume is fatal.
+    log.warn(
+      'no key volume at MIDNIGHT_MANAGED_PATH: account, bridge and trade actions are unavailable (RELAY_REQUIRE_KEYS=true refuses to start instead)',
+    );
+  } else if (config.managedPath) {
     const problems = keyVolumeProblems(keyCheck, {
       root: config.managedPath,
       pin: config.keysFingerprint,

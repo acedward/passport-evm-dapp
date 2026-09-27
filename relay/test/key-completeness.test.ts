@@ -188,8 +188,14 @@ describe('the key-volume check', () => {
   });
 });
 
-/** Start the relay (Bun, as deployed) with `env`; resolve with its exit code and output. */
-function startRelay(env: Record<string, string>, timeoutMs = 60_000): Promise<{ code: number | null; out: string }> {
+/** Start the relay (Bun, as deployed) with `env`; resolve with its exit code and output, or with
+ *  'served' once it answers /v1/config when `expectServe` (then it is stopped). */
+function startRelay(
+  env: Record<string, string>,
+  timeoutMs = 60_000,
+  expectServe = false,
+): Promise<{ code: number | null | 'served'; out: string }> {
+  const port = 10_000 + Math.floor(Math.random() * 40_000);
   return new Promise((resolve, reject) => {
     const tokens = join(mkdtempSync(join(tmpdir(), 'mnbank-tok-')), 'tokens.json');
     dirs.push(join(tokens, '..'));
@@ -209,7 +215,7 @@ function startRelay(env: Record<string, string>, timeoutMs = 60_000): Promise<{ 
         RELAY_NETWORK: 'undeployed',
         TOKENS_FILE: tokens,
         RELAY_HOST: '127.0.0.1',
-        RELAY_PORT: String(10_000 + Math.floor(Math.random() * 40_000)),
+        RELAY_PORT: String(port),
         ...env,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -221,10 +227,29 @@ function startRelay(env: Record<string, string>, timeoutMs = 60_000): Promise<{ 
       child.kill('SIGKILL');
       reject(new Error(`the relay did not exit within ${timeoutMs} ms:\n${out}`));
     }, timeoutMs);
+    let served = false;
     child.on('exit', (code) => {
       clearTimeout(timer);
-      resolve({ code, out });
+      resolve({ code: served ? 'served' : code, out });
     });
+    if (expectServe) {
+      const poll = async () => {
+        for (;;) {
+          if (child.exitCode !== null) return;
+          const ok = await fetch(`http://127.0.0.1:${port}/v1/config`).then(
+            (r) => r.ok,
+            () => false,
+          );
+          if (ok) {
+            served = true;
+            child.kill('SIGTERM');
+            return;
+          }
+          await new Promise((r) => setTimeout(r, 200));
+        }
+      };
+      void poll();
+    }
   });
 }
 
@@ -243,14 +268,22 @@ describe('the relay at start-up (Bun)', () => {
     expect(r.out).toContain('Erc20Vault/startDeposit: the verifier key does not match the deployed contract');
   }, 90_000);
 
-  it('refuses to start without a key volume when RELAY_REQUIRE_KEYS is set, and on an empty volume', async () => {
+  it('with RELAY_REQUIRE_KEYS, refuses to start without a key volume or on an empty one', async () => {
     const r = await startRelay({ RELAY_REQUIRE_KEYS: 'true' });
     expect(r.code).toBe(78);
     expect(r.out).toContain('RELAY_REQUIRE_KEYS is set but MIDNIGHT_MANAGED_PATH names no key volume');
     const empty = mkdtempSync(join(tmpdir(), 'mnbank-empty-'));
     dirs.push(empty);
-    const e = await startRelay({ MIDNIGHT_MANAGED_PATH: empty });
+    const e = await startRelay({ MIDNIGHT_MANAGED_PATH: empty, RELAY_REQUIRE_KEYS: 'true' });
     expect(e.code).toBe(78);
     expect(e.out).toContain('no compiled contracts with keys were found');
+  }, 90_000);
+
+  it('without it, an empty key path (the image default, nothing mounted) starts keyless and says so', async () => {
+    const empty = mkdtempSync(join(tmpdir(), 'mnbank-empty-'));
+    dirs.push(empty);
+    const r = await startRelay({ MIDNIGHT_MANAGED_PATH: empty }, 60_000, true);
+    expect(r.code).toBe('served');
+    expect(r.out).toContain('no key volume at MIDNIGHT_MANAGED_PATH');
   }, 90_000);
 });
