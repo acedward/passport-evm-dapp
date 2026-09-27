@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+coverage/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+keys/
+managed/
+
+# Test reports
+playwright-report/
+test-results/
+
+# OS and logs
+.DS_Store
+*.log
