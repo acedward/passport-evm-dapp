@@ -182,14 +182,56 @@ export interface BridgeResult {
   attested: AttestedKind;
   evmTxHash: string | null;
   settleTx: string;
-  settleCircuit: 'bridge_deposit_complete' | 'bridge_withdraw_complete' | 'bridge_withdraw_refund';
+  /** The circuit that closed the request. `abandonDeposit` (the vault's, called directly) closes a
+   *  deposit whose sweep never executed on Sepolia: nothing is minted, the tokens stay at the
+   *  deposit address, and the account can deposit again (plan P4-A, Q21 A). */
+  settleCircuit: 'bridge_deposit_complete' | 'bridge_withdraw_complete' | 'bridge_withdraw_refund' | 'abandonDeposit';
   /** The coin the settle minted to the account (a deposit, or a withdrawal's refund); null if none. */
   coin: BridgeCoinJson | null;
   /** A withdrawal's change, returned by the start (192 zero bytes in its inbox entry: Q13). */
   change: BridgeCoinJson | null;
   /** True when the settle's inbox entry describes the minted coin. */
   entryMatchesCoin: boolean;
+  /** `relay` when the bank closed a request its owner had left open (a stale request, Q21 A); the
+   *  settles are permissionless and pinned to the account, so the outcome is the same either way. */
+  closedBy?: 'owner' | 'relay';
 }
+
+/** GET /v1/bridge/closed/:requestId — how a request this relay closed recently ended (plan P4-A),
+ *  so a page whose job was lost (a relay restart, or the bank closed it as stale) can finish its
+ *  record without a signature. Keyed by the PUBLIC vault request id, so it carries only facts the
+ *  chain shows anyway, and no coin: the page finds a minted coin with its own inbox walk. Kept in
+ *  memory for the job TTL. */
+export interface BridgeClosedResponse {
+  requestId: string;
+  kind: BridgeKind;
+  /** Unix seconds. */
+  closedAt: number;
+  closedBy: 'owner' | 'relay';
+  attested: AttestedKind;
+  settleCircuit: BridgeResult['settleCircuit'];
+  settleTx: string;
+  evmTxHash: string | null;
+  /** Whether the settle minted a coin to the account (a deposit, or a refund). */
+  minted: boolean;
+}
+
+export const BridgeClosedResponseSchema = z.object({
+  requestId: z.string().regex(/^[0-9a-f]{64}$/),
+  kind: z.enum(BRIDGE_KINDS),
+  closedAt: z.number().int(),
+  closedBy: z.enum(['owner', 'relay']),
+  attested: z.enum(['success', 'returned-false', 'never-executed']),
+  settleCircuit: z.enum([
+    'bridge_deposit_complete',
+    'bridge_withdraw_complete',
+    'bridge_withdraw_refund',
+    'abandonDeposit',
+  ]),
+  settleTx: z.string(),
+  evmTxHash: z.string().nullable(),
+  minted: z.boolean(),
+});
 
 /** The stage ids a bridge job reports, in order (each with public details only). */
 export const BRIDGE_STAGES = [
@@ -206,6 +248,12 @@ export const BRIDGE_STAGES = [
   'attested',
   'settling',
   'settled',
+  'abandoning',
+  'abandoned',
+  /** A resume found the bank already completing this request, and waited for that run. */
+  'joined',
+  /** A resume found the request already closed by the bank (a stale request, Q21 A). */
+  'already-closed',
 ] as const;
 export type BridgeStage = (typeof BRIDGE_STAGES)[number];
 
@@ -221,6 +269,8 @@ export const BRIDGE_ERRORS = {
   requestMatch: 'request-match',
   notOpen: 'request-not-open',
   inProgress: 'already-in-progress',
+  /** The bank's budget for closing other customers' stale requests is used up for now (Q21 A). */
+  closeBudget: 'close-budget',
 } as const;
 
 // ── Preflights ────────────────────────────────────────────────────────────────

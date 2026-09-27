@@ -24,6 +24,14 @@
 .app-banner {
   margin-top: var(--space-4);
 }
+/* The shell's standing notices (storage, network, the bank's status): nothing when there are none. */
+.app-banner-stack {
+  display: grid;
+  gap: var(--space-3);
+}
+.app-banner-stack:empty {
+  display: none;
+}
 
 /* ── masthead ──────────────────────────────────────────────────────── */
 .masthead {
@@ -1183,7 +1191,8 @@
 .seg button + button {
   border-left: 1px solid var(--navy);
 }
-.seg button[aria-pressed='true'] {
+.seg button[aria-pressed='true'],
+.seg button[aria-checked='true'] {
   background: var(--navy);
   color: var(--on-accent);
 }
@@ -1514,6 +1523,14 @@
   .trade-grid {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+/* The grid spaces its two panels; the panel-after-panel rule would push the second one down. */
+.trade-grid > .panel + .panel {
+  margin-top: 0;
+}
+/* The book in the Take panel: asks above bids (the panel is the narrower column). */
+.book-stack > * + * {
+  margin-top: var(--space-5);
 }
 /* The compact price ladder beside the order form: asks above the spread, bids below. */
 .ladder {

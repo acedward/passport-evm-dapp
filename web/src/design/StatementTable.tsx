@@ -36,6 +36,9 @@ export interface StatementTableProps extends TableHTMLAttributes<HTMLTableElemen
   variant?: 'ledger' | 'book';
   /** A caption read by screen readers (the visible title is usually the panel's). */
   caption?: ReactNode;
+  /** The children are <tbody> row groups themselves (a book line with its reason row under it),
+   *  not rows: they are not wrapped in one <tbody>. */
+  groups?: boolean;
 }
 
 export function StatementTable({
@@ -44,6 +47,7 @@ export function StatementTable({
   stack = true,
   variant = 'ledger',
   caption,
+  groups = false,
   className,
   children,
   ...rest
@@ -62,7 +66,7 @@ export function StatementTable({
           ))}
         </tr>
       </thead>
-      <tbody>{children}</tbody>
+      {groups ? children : <tbody>{children}</tbody>}
       {foot ? <tfoot>{foot}</tfoot> : null}
     </table>
   );

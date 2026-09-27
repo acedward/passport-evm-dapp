@@ -1,5 +1,7 @@
 // GET /health (spec FR-013): the sponsor's DUST, the proof server and its keys, the queue, the
-// kernel and batcher, and the gas ETH on the vault's EVM account. Public data only: no URL, no
+// kernel and batcher, and the gas ETH on the vault's EVM account; since plan P4-A also whether the
+// key volume holds every circuit the relay proves, the batcher's last refusal of a take, and the
+// bridge: how the MPC has been answering, and the stale-request closer (Q21 A). Public data only: no URL, no
 // seed, no key. External probes are cached for a few seconds so /health cannot be used to flood
 // the services behind it.
 
@@ -7,7 +9,7 @@ import type { HealthResponse } from '@mnbank/core';
 
 import type { Logger } from './log.js';
 import type { ProofServerClient } from './prover/client.js';
-import type { KeyCheck } from './prover/keys.js';
+import { keyVolumeComplete, type KeyCheck } from './prover/keys.js';
 import type { JobQueue } from './queue/jobs.js';
 import type { SponsorSession } from './sponsor/session.js';
 
@@ -88,6 +90,10 @@ export interface HealthDeps {
   vaultEvmAddress: string;
   vaultGasLowWei: bigint;
   cacheSeconds: number;
+  /** The bridge's live facts (plan P4-A): the MPC as the relay saw it, and the stale closer. */
+  bridge?: () => NonNullable<HealthResponse['bridge']>;
+  /** The batcher's last refusal of a take (plan P4-A), or null. */
+  batcherRefusal?: () => { httpStatus: number; at: number } | null;
   now?: () => number;
 }
 
@@ -110,7 +116,12 @@ export function healthCollector(deps: HealthDeps): () => Promise<HealthResponse>
     const dustLow = sponsor.dustSpecks === null ? sponsor.configured : sponsor.dustSpecks < deps.dustLowSpecks;
     const stats = deps.queue.stats();
     const gasLow = gas === null ? null : gas < deps.vaultGasLowWei;
-    const keysOk = keys.present && keys.matchesPin !== false && keys.missingProverKeys.length === 0;
+    const keysOk = keyVolumeComplete(keys);
+    const keyProblems =
+      keys.missingVerifierKeys.length +
+      keys.missingProverKeys.filter((k) => !keys.missingVerifierKeys.includes(k)).length +
+      keys.missingZkir.filter((k) => !keys.missingVerifierKeys.includes(k)).length +
+      keys.mismatchedVerifierKeys.length;
     const down = !proof.reachable || sponsor.state === 'error' || keys.matchesPin === false;
     const degraded =
       !sponsor.synced ||
@@ -141,12 +152,15 @@ export function healthCollector(deps: HealthDeps): () => Promise<HealthResponse>
           fingerprint: keys.fingerprint,
           pinned: keys.pinned,
           matchesPin: keys.matchesPin,
+          complete: keysOk,
+          problems: keyProblems,
         },
       },
       queue: { jobs: stats.jobs, lanes: stats.lanes },
       kernel,
-      batcher,
+      batcher: { ...batcher, lastRefusal: deps.batcherRefusal?.() ?? null },
       vaultGas: { address: deps.vaultEvmAddress, balanceWei: gas === null ? null : gas.toString(10), low: gasLow },
+      ...(deps.bridge ? { bridge: deps.bridge() } : {}),
     };
   };
 }

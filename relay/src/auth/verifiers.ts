@@ -23,7 +23,16 @@ import type { NonceStore } from './nonces.js';
 export type AuthKind = 'relay-action' | 'passport-call';
 
 export type VerifyOutcome =
-  | { ok: true; signer: string; kind: AuthKind; account?: string }
+  | {
+      ok: true;
+      signer: string;
+      kind: AuthKind;
+      account?: string;
+      /** Undo what accepting the authorisation claimed (a passport-call's digest in the replay
+       *  guard), when the route refuses the request after all (a rate limit, a full queue), so the
+       *  customer can send the same signature again later. */
+      release?: () => void;
+    }
   | { ok: false; code: AuthFailureCode | 'not-supported'; reason: string };
 
 export interface RelayActionContext {

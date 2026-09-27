@@ -40,6 +40,21 @@ export class StoreReadOnlyError extends Error {
   override name = 'StoreReadOnlyError';
 }
 
+/** The browser refused a write because its storage for this site is full (plan P4-A error states). */
+export class StoreFullError extends Error {
+  override name = 'StoreFullError';
+  constructor() {
+    super(
+      'This browser has no room left for MN Bank’s records, so the last change was not saved. Export your data under Local data, free some site data, then reload.',
+    );
+  }
+}
+
+const isQuotaError = (e: unknown) => {
+  const name = (e as { name?: string } | null)?.name ?? '';
+  return name === 'QuotaExceededError' || name === 'NS_ERROR_DOM_QUOTA_REACHED';
+};
+
 export interface RecordView {
   key: string;
   parsed: ParsedKey;
@@ -170,8 +185,13 @@ export class LocalStore {
   ): string {
     if (this.readOnly) throw new StoreReadOnlyError('this browser holds data from a newer version of MN Bank');
     const key = recordKey(scope, kind, opts);
-    this.markSchema();
-    this.storage.setItem(key, encodeRecord(kind, data, this.now()));
+    try {
+      this.markSchema();
+      this.storage.setItem(key, encodeRecord(kind, data, this.now()));
+    } catch (e) {
+      if (isQuotaError(e)) throw new StoreFullError();
+      throw e;
+    }
     this.emit();
     return key;
   }

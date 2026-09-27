@@ -29,6 +29,10 @@ export function stageText(kind: TransferRecord['kind'], stage: string): string {
     attested: 'Sig Network confirmed the outcome',
     settling: 'Finishing on Midnight',
     settled: 'Finished on Midnight',
+    abandoning: 'Closing the request in the vault',
+    abandoned: 'Request closed in the vault',
+    joined: 'The bank was already finishing it',
+    'already-closed': 'Already closed by the bank',
     succeeded: 'Done',
     failed: 'Stopped',
   };
@@ -52,28 +56,38 @@ export function outcomeText(t: TransferRecord): { kind: 'ok' | 'error' | 'info';
   const name = t.kind === 'deposit' ? t.midnightName : t.symbol;
   if (t.state === 'succeeded' && t.result) {
     const r = t.result;
+    const bank =
+      r.closedBy === 'relay'
+        ? 'A stale request was closed: the bank finished this transfer after it was left open. '
+        : '';
+    if (r.settleCircuit === 'abandonDeposit') {
+      return {
+        kind: 'info',
+        text: `${bank}Sig Network reported that the sweep never ran on Sepolia, so nothing was minted and the request is closed: you can deposit again. Your ${t.symbol} is still at your deposit address, where your next deposit will use it.`,
+      };
+    }
     if (t.kind === 'deposit') {
       if (r.attested === 'returned-false') {
         return {
           kind: 'error',
-          text: `The ${t.symbol} contract refused the sweep (its transfer returned false). Nothing was minted; the request is closed and your ${t.symbol} stays at the deposit address.`,
+          text: `${bank}The ${t.symbol} contract refused the sweep (its transfer returned false). Nothing was minted; the request is closed and your ${t.symbol} stays at the deposit address.`,
         };
       }
-      return { kind: 'ok', text: `${amountText(t, r.coin?.value)} ${t.midnightName} arrived in your account.` };
+      return { kind: 'ok', text: `${bank}${amountText(t, r.coin?.value)} ${t.midnightName} arrived in your account.` };
     }
     if (r.settleCircuit === 'bridge_withdraw_refund') {
       return {
         kind: 'info',
-        text: `Refunded: the transfer never ran on Sepolia, so ${amountText(t, r.coin?.value)} ${t.midnightName} came back to your account.`,
+        text: `${bank}Refunded: the transfer never ran on Sepolia, so ${amountText(t, r.coin?.value)} ${t.midnightName} came back to your account.`,
       };
     }
     if (r.attested === 'returned-false') {
       return {
         kind: 'info',
-        text: `Refunded: the ${t.symbol} contract refused the payout (its transfer returned false), so ${amountText(t, r.coin?.value)} ${t.midnightName} came back to your account.`,
+        text: `${bank}Refunded: the ${t.symbol} contract refused the payout (its transfer returned false), so ${amountText(t, r.coin?.value)} ${t.midnightName} came back to your account.`,
       };
     }
-    return { kind: 'ok', text: `${amountText(t)} ${name} sent to ${t.dest} on Sepolia.` };
+    return { kind: 'ok', text: `${bank}${amountText(t)} ${name} sent to ${t.dest} on Sepolia.` };
   }
   if (t.state === 'needs-resume') {
     if (t.error?.code === 'mpc-timeout') {
