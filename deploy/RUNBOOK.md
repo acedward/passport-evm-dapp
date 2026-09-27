@@ -22,13 +22,28 @@ put in the env file itself: pass the path of a file that contains them (`*_FILE`
 
 ## Before the first start
 
-1. _TODO_ Build the key volume (`relay-keys-init`) and note its fingerprint for `RELAY_KEYS_FINGERPRINT`.
+1. Build the key volume and pin its fingerprint in `RELAY_KEYS_FINGERPRINT`. The volume holds the
+   compiled contracts of `acedward/passport` @ `51c1fb4` (compactc 0.34.0): `account/`, `Erc20Vault/`,
+   `SignetSigner/` and `SignetCircuits/`, each with `contract/`, `keys/`, `zkir/` and `compiler/`.
+   The relay mounts it read-only at `/app/vendor/passport/contract/contracts/managed`
+   (`compose.keys.yml`), refuses to start when its fingerprint differs from the pin, and refuses to
+   load its account operations unless the mounted compiled account's `expectedVk` table matches the
+   volume's verifier keys. The key set this project verified (2026-09-27) has the fingerprint
+   `d6de768ade27a1e65a721e68bd4d2ac1dc8c7580a981424c16ddf7bdc6a7c503`; its vault and singleton keys
+   equal the stagenet vault `7771c9e5…` records. The account actions need the prover keys of
+   `activate_initial_device_with_evm`, `withdraw_shielded_with_evm` and `append_inbox_with_evm`.
 2. _TODO_ Fund the sponsor wallet with DUST (a dedicated wallet; see "Sponsor wallet").
 3. _TODO_ Register the bridged token names in the kernel: `POST /v1/known-tokens` for wStkA, wStkB, wStkC and wUSDC.
 4. _TODO_ Fund the vault's EVM account with Sepolia ETH for withdrawal gas.
 
 ## Sponsor wallet
 
+- The fee margin (`SPONSOR_FEE_BLOCKS_MARGIN`, blocks of maximum fee-price growth the wallet adds
+  to each fee) matters for registration: on the local ledger-9 stack the activation that follows
+  the two heavy deploy transactions was refused by the node with `BalanceCheckOverspend` (error
+  138) at margin 5, and accepted at 20 and 100. The wallet spends the whole declared amount,
+  `fee × 1.046^margin`: at the default 20, a stagenet registration (24.4 DUST of fees) takes about
+  60 DUST from the sponsor (question Q19).
 - Use a wallet dedicated to this relay. One wallet process per seed: a second process on the same
   seed breaks the first one's connection.
 - If the relay must share a seed with other tools, set `SPONSOR_FUNDING_LOCK_FILE` to the shared
