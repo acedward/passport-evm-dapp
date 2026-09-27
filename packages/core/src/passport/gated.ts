@@ -14,6 +14,7 @@
 // the browser resolves the coin's exact position BEFORE it builds the call (../coins.ts).
 
 import type { AppendInboxPayload, WithdrawPayload } from '../accounts.js';
+import type { BridgeDepositPayload, BridgeWithdrawPayload, EvmTxParamsJson } from '../bridge.js';
 import { bytesToHex, hexToBytes, normaliseHex32 } from '../hex.js';
 import {
   buildTypedData,
@@ -83,6 +84,45 @@ export function withdrawRequest(p: WithdrawPayload): AuthRequest {
 /** The AuthRequest of an `append-inbox` action body. */
 export function appendInboxRequest(p: AppendInboxPayload): AuthRequest {
   return { op: 'appendInbox', entry: hexToBytes(p.entry, 192) };
+}
+
+const evmTxParams = (e: EvmTxParamsJson) => ({
+  nonce: BigInt(e.nonce),
+  gasLimit: BigInt(e.gasLimit),
+  maxFeePerGas: BigInt(e.maxFeePerGas),
+  maxPriorityFeePerGas: BigInt(e.maxPriorityFeePerGas),
+  keyVersion: BigInt(e.keyVersion),
+});
+
+const evmAddressBytes = (a: string) => hexToBytes(a.toLowerCase(), 20);
+
+/** The AuthRequest of a `bridge-deposit` action body (`bridge_deposit_start_with_evm`). */
+export function bridgeDepositStartRequest(p: BridgeDepositPayload): AuthRequest {
+  return {
+    op: 'bridgeDepositStart',
+    erc20: evmAddressBytes(p.erc20),
+    amount: BigInt(p.amount),
+    evm: evmTxParams(p.evm),
+  };
+}
+
+/** The AuthRequest of a `bridge-withdraw` action body (`bridge_withdraw_start_with_evm`). The change
+ *  inbox entry is deliberately not part of it: the challenge does not bind it (upstream Q46). */
+export function bridgeWithdrawStartRequest(p: BridgeWithdrawPayload): AuthRequest {
+  return {
+    op: 'bridgeWithdrawStart',
+    dest: evmAddressBytes(p.dest),
+    color: hexToBytes(normaliseHex32(p.color), 32),
+    amount: BigInt(p.amount),
+    erc20: evmAddressBytes(p.erc20),
+    coin: {
+      nonce: hexToBytes(normaliseHex32(p.coin.nonce), 32),
+      color: hexToBytes(normaliseHex32(p.coin.color), 32),
+      value: BigInt(p.coin.value),
+      mt_index: BigInt(p.coin.mtIndex),
+    },
+    evm: evmTxParams(p.evm),
+  };
 }
 
 /** A device's rolling entry at (account, epoch, counter): `derive_device_entry_with_evm`. */

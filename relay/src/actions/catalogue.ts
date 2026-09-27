@@ -11,6 +11,9 @@ import { z } from 'zod';
 
 import {
   AppendInboxPayloadSchema,
+  BridgeDepositPayloadSchema,
+  BridgeResumePayloadSchema,
+  BridgeWithdrawPayloadSchema,
   RELAY_ACTIONS,
   RegisterPayloadSchema,
   WithdrawPayloadSchema,
@@ -19,6 +22,7 @@ import {
 } from '@mnbank/core';
 
 import type { AuthKind } from '../auth/verifiers.js';
+import type { BridgeService } from '../bridge/service.js';
 import { PublicError, type JobExecutor } from '../queue/jobs.js';
 
 export interface ActionDefinition {
@@ -73,6 +77,9 @@ export function defaultCatalogue(): Map<RelayActionName, ActionDefinition> {
     def('take', 'prover', 'L-TRD'),
     def('bridge-deposit', 'deposit', 'L-BRG'),
     def('bridge-withdraw', 'withdrawal', 'L-BRG'),
+    // A resume runs on its account's lane: its Sepolia nonce is already fixed, so it never waits
+    // for the global withdrawal lane.
+    def('bridge-resume', 'deposit', 'L-BRG'),
   ];
   const map = new Map(list.map((d) => [d.action, d]));
   for (const a of RELAY_ACTIONS) if (!map.has(a)) throw new Error(`action ${a} has no definition`);
@@ -95,5 +102,31 @@ export function accountCatalogue(deps: AccountActionDeps): Map<RelayActionName, 
     payload: AppendInboxPayloadSchema,
     executor: appendInboxExecutor(deps),
   });
+  return map;
+}
+
+/**
+ * The catalogue with plan lane L-BRG's executors added: the two bridge starts, each authorised by
+ * the start's OWN Passport signature (one prompt: it binds the Sepolia transaction the MPC will
+ * sign), and a resume by vault request id, authorised by a RelayAction signature (only after the
+ * relay restarted; the settles it runs are permissionless and pinned to the account).
+ */
+export function withBridge(
+  map: Map<RelayActionName, ActionDefinition>,
+  bridge: BridgeService,
+): Map<RelayActionName, ActionDefinition> {
+  const set = (action: RelayActionName, patch: Partial<ActionDefinition>) =>
+    map.set(action, { ...map.get(action)!, ...patch });
+  set('bridge-deposit', {
+    auth: 'passport-call',
+    payload: BridgeDepositPayloadSchema,
+    executor: bridge.depositExecutor,
+  });
+  set('bridge-withdraw', {
+    auth: 'passport-call',
+    payload: BridgeWithdrawPayloadSchema,
+    executor: bridge.withdrawExecutor,
+  });
+  set('bridge-resume', { payload: BridgeResumePayloadSchema, executor: bridge.resumeExecutor });
   return map;
 }

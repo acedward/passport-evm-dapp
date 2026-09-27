@@ -155,6 +155,17 @@ export class JobQueue {
     };
   }
 
+  /** The jobs holding and waiting for one lane (the deposit lane is per account). */
+  laneLoad(lane: JobLane, account?: string): { running: number; waiting: number } {
+    const lock =
+      lane === 'prover'
+        ? this.prover
+        : lane === 'withdrawal'
+          ? this.withdrawal
+          : this.deposits.get(`deposit:${(account ?? '').replace(/^0x/, '').toLowerCase()}`);
+    return lock ? { running: lock.running, waiting: lock.waiting } : { running: 0, waiting: 0 };
+  }
+
   /** Forget finished jobs past their TTL. Queued and running jobs are never dropped. */
   sweep(): void {
     const now = this.now();
