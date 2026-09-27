@@ -139,3 +139,31 @@ td.value code {
   flex-direction: column;
   gap: 8px;
 }
+th.num,
+td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+tr.selected {
+  background: #f3f3f3;
+}
+caption {
+  text-align: left;
+  font-weight: 600;
+  padding: 4px 0;
+}
+.book {
+  margin-top: 16px;
+  border-top: 1px solid #ccc;
+}
+.book-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.book-sides {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+}
