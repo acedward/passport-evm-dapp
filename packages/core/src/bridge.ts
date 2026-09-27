@@ -155,6 +155,9 @@ export const BridgeQuoteSchema = z.object({
   lane: z.object({ running: z.number().int().nonnegative(), waiting: z.number().int().nonnegative() }),
   /** Requests of this path still open in the vault (a deposit left unfinished must be resumed first). */
   openInVault: z.number().int().nonnegative(),
+  /** The open requests that belong to THIS account (deposit: its path; withdrawal: its refund
+   *  recipient), so the page can resume one whose start landed while the relay was restarting. */
+  accountOpen: z.array(z.string().regex(/^[0-9a-f]{64}$/)),
 });
 export type BridgeQuote = z.infer<typeof BridgeQuoteSchema>;
 

@@ -384,7 +384,11 @@ describe('bridge withdrawal', () => {
       }).requestId,
     );
     expect(done?.state).toBe('succeeded');
-    expect(detail(done, 'started').changeValue).toBe('400000');
+    expect(detail(done, 'started')).toMatchObject({
+      changeValue: '400000',
+      changeNonce: 'cc'.repeat(32),
+      changeColour: COLOUR_A,
+    });
     expect(done?.result).toMatchObject({
       kind: 'withdraw',
       attested: 'success',
@@ -491,7 +495,15 @@ describe('the bridge quote', () => {
       payerErc20: ONE.toString(),
       lane: { running: 0, waiting: 0 },
       openInVault: 0,
+      accountOpen: [],
     });
+    const open = t.fake.addOpen('deposit', ACC1, STKA, ONE);
+    t.fake.addOpen('deposit', ACC2, STKA, ONE);
+    expect((await t.svc.quote('deposit', ACC1, STKA)).accountOpen).toEqual([open]);
+    const w = t.fake.addOpen('withdraw', ACC1, STKA, ONE);
+    t.fake.addOpen('withdraw', ACC2, STKA, ONE);
+    const qw = await t.svc.quote('withdraw', ACC1, STKA);
+    expect([qw.openInVault, qw.accountOpen]).toEqual([2, [w]]);
     await expect(t.svc.quote('deposit', ACC1, '0x000000000000000000000000000000000000dEaD')).rejects.toThrow(
       /does not bridge/,
     );

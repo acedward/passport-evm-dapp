@@ -160,12 +160,19 @@ export class BridgeService {
       erc20 === undefined ? Promise.resolve(null) : be.evm.erc20Balance(erc20, payer).catch(() => null),
       be.openRequests(kind).catch(() => null),
     ]);
-    const openInVault =
+    const mine =
       open === null
-        ? 0
+        ? []
         : kind === 'deposit'
-          ? open.ids.filter((id) => normaliseHex(open.pathOf(id) ?? '') === be.depositPathHex(account)).length
-          : open.ids.length;
+          ? open.ids.filter((id) => normaliseHex(open.pathOf(id) ?? '') === be.depositPathHex(account))
+          : (
+              await Promise.all(
+                open.ids.map(async (id) =>
+                  (await be.settleView('withdraw', id).catch(() => null))?.account === account ? id : null,
+                ),
+              )
+            ).filter((id): id is string => id !== null);
+    const openInVault = open === null ? 0 : kind === 'deposit' ? mine.length : open.ids.length;
     return {
       kind,
       account,
@@ -178,6 +185,7 @@ export class BridgeService {
       payerErc20: tokenBal === null ? null : tokenBal.toString(10),
       lane: load,
       openInVault,
+      accountOpen: mine,
     };
   }
 
@@ -361,7 +369,11 @@ export class BridgeService {
         dest: payload.dest,
         amount: amount.toString(10),
         erc20: payload.erc20,
-        ...(start.change ? { changeValue: start.change.value } : {}),
+        // The change's description, recorded at once: if the relay restarts before the settle, the
+        // page still knows the coin (its inbox entry is 192 zero bytes until re-filed, Q13).
+        ...(start.change
+          ? { changeValue: start.change.value, changeNonce: start.change.nonce, changeColour: start.change.color }
+          : {}),
       });
       return await this.finish(be, ctx, {
         kind: 'withdraw',

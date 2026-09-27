@@ -6,6 +6,9 @@ import {
   API_PATHS,
   AccountStateViewSchema,
   ApiErrorSchema,
+  BridgeQuoteSchema,
+  type BridgeKind,
+  type BridgeQuote,
   InboxPageSchema,
   JobViewSchema,
   NonceResponseSchema,
@@ -111,6 +114,13 @@ export class RelayClient {
 
   async inbox(account: string, from = 0, limit = 500): Promise<InboxPage> {
     return InboxPageSchema.parse(await this.call(`${API_PATHS.accountInbox(account)}?from=${from}&limit=${limit}`));
+  }
+
+  /** The Sepolia fields a bridge start signs, with the nonce the relay reserves (plan L-BRG). */
+  async bridgeQuote(kind: BridgeKind, account: string, erc20?: string): Promise<BridgeQuote> {
+    const q = new URLSearchParams({ kind, account });
+    if (erc20) q.set('erc20', erc20);
+    return BridgeQuoteSchema.parse(await this.call(`${API_PATHS.bridgeQuote}?${q.toString()}`));
   }
 
   async zswap(account: string): Promise<ZswapActivity> {
