@@ -1,5 +1,6 @@
-// A read-only client for the offer-files kernel (the ZSwap exchange's API), shared by the web
-// app and the tests. The browser calls the kernel directly: it serves CORS `*`.
+// A client for the offer-files kernel (the ZSwap exchange's API), shared by the web app, the relay
+// and the tests. The browser calls the kernel directly: it serves CORS `*`. Everything is a read
+// except `postOffer` (plan L-TRD: publishing an account's offer).
 //
 // It never uses `/v1/prices` or `/v1/quote` (reference prices from CoinGecko or manual rows):
 // the bank's prices come from the live offers only (spec FR-007).
@@ -17,10 +18,14 @@ import { SseParser } from './sse.js';
 import {
   type ChartStats,
   ChartStatsSchema,
+  KERNEL_OFFER_STATUSES,
+  type KernelOfferStatus,
   type KnownToken,
   KnownTokensSchema,
   type OfferDetail,
   OfferDetailSchema,
+  OfferStatusSchema,
+  type PostOfferAnswer,
   type OfferRow,
   OfferRowSchema,
   OffersPageSchema,
@@ -353,6 +358,65 @@ export class KernelClient {
     const parsed = OfferDetailSchema.safeParse(json);
     if (!parsed.success) throw new KernelError('invalid-response', 'the offer is not in the expected shape');
     return parsed.data;
+  }
+
+  /**
+   * `GET /v1/offers/:offerId/status`: the offer's lifecycle status by content hash: `live`,
+   * `consumed`, `expired`, `cancelled`, or `not_found` (the kernel's own word for an id it never
+   * indexed). Any other text is returned as `unknown` (plan L-TRD: My offers).
+   */
+  async offerStatus(offerId: string, signal?: AbortSignal): Promise<KernelOfferStatus> {
+    const json = await this.getJson(`/v1/offers/${normaliseHex32(offerId)}/status`, {}, signal);
+    const parsed = OfferStatusSchema.safeParse(json);
+    if (!parsed.success) throw new KernelError('invalid-response', 'the offer status is not in the expected shape');
+    const s = parsed.data.status;
+    return (KERNEL_OFFER_STATUSES as readonly string[]).includes(s) ? (s as KernelOfferStatus) : 'unknown';
+  }
+
+  /**
+   * `POST /v1/offers` with `{"offer": "swapoffer1…"}`: validate and publish an offer (finding 12).
+   * Never retried here: a POST that timed out may have been accepted, and the kernel answers a
+   * repeat with 409 DUPLICATE_OFFER, which the caller reads as "already there".
+   */
+  async postOffer(blob: string, signal?: AbortSignal): Promise<PostOfferAnswer> {
+    if (signal?.aborted) throw abortError();
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), Math.max(this.timeoutMs, 60_000));
+    const onAbort = () => ctrl.abort();
+    signal?.addEventListener('abort', onAbort, { once: true });
+    let status: number;
+    let text: string;
+    try {
+      const res = await this.fetchImpl(this.url('/v1/offers'), {
+        method: 'POST',
+        headers: { accept: 'application/json', 'content-type': 'application/json' },
+        body: JSON.stringify({ offer: blob }),
+        signal: ctrl.signal,
+      });
+      status = res.status;
+      text = await res.text();
+    } catch {
+      if (signal?.aborted) throw abortError();
+      throw new KernelError('network', 'the exchange could not be reached');
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+    }
+    let body: Record<string, unknown> = {};
+    try {
+      const parsed = JSON.parse(text) as unknown;
+      if (parsed && typeof parsed === 'object') body = parsed as Record<string, unknown>;
+    } catch {
+      /* not JSON: the status decides */
+    }
+    const code = typeof body.error === 'string' ? body.error : null;
+    const reason = typeof body.reason === 'string' ? body.reason : null;
+    const offerId = typeof body.offerId === 'string' ? body.offerId.toLowerCase() : null;
+    if (status >= 200 && status < 300) return { accepted: true, duplicate: false, status, offerId, code, reason };
+    if (status === 409 && code === 'DUPLICATE_OFFER') {
+      return { accepted: true, duplicate: true, status, offerId, code, reason };
+    }
+    return { accepted: false, duplicate: false, status, offerId, code, reason };
   }
 
   /** `GET /v1/pairs`: every pair with fills or open (non-basket) offers. */
