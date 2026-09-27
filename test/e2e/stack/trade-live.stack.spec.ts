@@ -4,7 +4,9 @@
 // provider) and the relay (in Docker, configured for stagenet) under the shared funding lock.
 // Never in CI: test/stack/run-trade-live.sh drives it, one phase per run:
 //
-//   make       LIVE_ACCOUNT's page: "Sell 1 wStkA at 1.00" on the Trade page, one signature, listed
+//   make       LIVE_ACCOUNT's page: "Sell 10 wStkA at 0.02" on the Trade page, one signature, listed
+//              (wUSDC is the quote at cent prices; 0.02 sits above the ladder asks, so no stranger
+//              takes it first)
 //   take       LIVE_ACCOUNT's page: the offer from the make phase, taken whole with one signature
 //   reconcile  LIVE_ACCOUNT's page: Refresh until My offers shows the offer filled
 //
@@ -24,8 +26,8 @@ const WHO = (process.env.LIVE_ACCOUNT ?? '') as 'A' | 'B' | '';
 const CFG = process.env.LIVE_CFG_DIR ?? '/cfg';
 const OUT = process.env.LIVE_OUT_DIR ?? join(process.cwd(), 'test-results', 'live-trade');
 const KERNEL = 'https://stagenet.api-zswap.zkdojo.com';
-const QTY = process.env.LIVE_QTY ?? '1';
-const PRICE = process.env.LIVE_PRICE ?? '1.00';
+const QTY = process.env.LIVE_QTY ?? '10';
+const PRICE = process.env.LIVE_PRICE ?? '0.02';
 
 /** The page's local storage between phases (it holds the encryption secret): mode 600, outside the
  *  repository and the evidence. */

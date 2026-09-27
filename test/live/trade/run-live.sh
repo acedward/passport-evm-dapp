@@ -2,8 +2,10 @@
 # run-live.sh — L-TRD.0, the take path LIVE on the staging exchange (plan 00039), in Docker.
 #
 #   test/live/trade/run-live.sh preflight   read-only (node, exchange, batcher, live ledger parameters)
-#   test/live/trade/run-live.sh window      the live window: accounts, funding, offer, take, verify
+#   test/live/trade/run-live.sh window      the live window: A funded with one wUSDC coin takes the best
+#                                           ladder ask (b); B registered and funded for (c2); verify
 #                                           (holds the SHARED funding lock for its whole run)
+#   test/live/trade/run-live.sh c2          A offers, B takes it (c2) through the relay's executors
 #   test/live/trade/run-live.sh verify      read-only: kernel status and both accounts' inbox walks
 #   test/live/trade/run-live.sh replay      re-submits the settled take to the batcher (must be refused)
 #
@@ -24,7 +26,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"
-CMD="${1:?usage: run-live.sh preflight|window|verify|replay}"
+CMD="${1:?usage: run-live.sh preflight|window|c2|verify|replay}"
 CHECK="${DOCKER_CHECK_NAME:-aa00039-trd-check}"
 APP="$CHECK-app"
 KEYS_DIR="${KEYS_DIR:-$HOME/.cache/aa-00039/keys}"
@@ -48,7 +50,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 case "$CMD" in
-  window) NEEDS_WALLET=1 ;;
+  window|c2) NEEDS_WALLET=1 ;;
   preflight|verify|replay) NEEDS_WALLET=0 ;;
   *) echo "unknown command $CMD" >&2; exit 2 ;;
 esac

@@ -13,16 +13,17 @@
 //   preflight   read-only: node version, the exchange and batcher health, the chain's LIVE ledger
 //               parameters (min_time_to_dismiss) and the partition steering against them
 //   window      one live window under the shared funding lock (run-live.sh holds it):
-//                 accounts  A = the G-BRIDGE test account (reused: a second registration would cost
-//                           about 60 DUST more than the Q8 cap allows), B = a new account,
-//                           registered by the relay's register executor (one RelayAction signature)
-//                 fund      deposit_shielded from the sponsor: 3 wStkA into A, 4 wUSDC into B
-//                 offer     A: "sell 2 wStkA at 1.05" = give 2 wStkA, want 2.10 wUSDC, proven
-//                           guaranteed, posted to the kernel (the open-swap executor)
-//                 take      B: the complement (give 2.10 wUSDC, want 2 wStkA), one signature; the
-//                           take executor checks the maker's offer, proves, merges, checks
-//                           cost(params, true) and hands it to the batcher
+//                 A      the G-BRIDGE test account (reused: a second registration would cost about
+//                        60 DUST more than the Q8 cap allows), funded with ONE 2-wUSDC coin by
+//                        deposit_shielded from the sponsor
+//                 (b)    A takes the best wStkA/wUSDC ask of the staging book (a wallet maker's
+//                        ladder offer, legs in segment 0) through the take executor: the maker check,
+//                        the guaranteed proof, the merge, cost(params, true) and the batcher; then
+//                        the kernel's status transition and A's inbox walk
+//                 B      a new account, registered by the relay's register executor (one RelayAction
+//                        signature) and funded with one 1-wUSDC coin, for (c2)
 //               each step is skipped when the state file says it is done (re-runnable)
+//   c2          A offers 10 wStkA at 0.02 (the open-swap executor), B takes it (the take executor)
 //   verify      read-only: kernel status, both accounts' inbox walks, the settling transaction
 //   replay      re-submits the settled take to the batcher: it must be refused
 //
@@ -101,10 +102,14 @@ const registry = stagenetRegistry();
 const STOCK = registry.byColour('5eb2a3cebb2ebe7ba910c78f62c9e28e0d74acbd00c810730def3578860e6a02')!;
 const USDC = registry.usdc();
 const UNIT = 1_000_000n;
-const FUND_A_STOCK = 3n * UNIT; // 3 wStkA into A
-const FUND_B_USDC = 4n * UNIT; // 4 wUSDC into B
-const OFFER_QTY = 2n * UNIT; // A sells 2 wStkA
-const OFFER_PRICE = '1.05'; // at 1.05 USDC: wants 2.10 wUSDC
+/** (b): A takes the best ladder ask (100 wStkA for about 1.04 wUSDC) from one 2-wUSDC coin. */
+const FUND_A_USDC = 2n * UNIT;
+/** (c2): B is funded with one 1-wUSDC coin to take A's own offer. */
+const FUND_B_USDC = 1n * UNIT;
+/** (c2): A sells 10 of the wStkA it bought at 0.02 (above the ladder, so no stranger takes it
+ *  first): it wants 0.20 wUSDC. Quote prices here are cents (the owner: wUSDC is the quote). */
+const C2_QTY = 10n * UNIT;
+const C2_PRICE = '0.02';
 
 const log = createLogger({ level: 'info' }, { service: 'l-trd0' });
 const say = (msg: string, fields: Record<string, unknown> = {}) => log.info(msg, fields);
@@ -167,18 +172,30 @@ interface AccountRef {
   encPublicHex?: string;
   device: string;
 }
+interface TakeState {
+  offerId: string;
+  by: 'A' | 'B';
+  result?: unknown;
+  error?: string;
+  mergedHex?: string;
+  at: string;
+}
 interface TrdState {
   accounts: Partial<Record<'A' | 'B', AccountRef>>;
   funded: Partial<Record<'A' | 'B', { txId: string; colour: string; value: string; nonce: string }>>;
+  /** (c2): A's own offer. */
   offer?: { offerId: string; payload: OpenSwapPayload; result: unknown; madeAt: string };
-  take?: { offerId: string; result?: unknown; error?: string; mergedHex?: string; at: string };
+  /** `ladder`: (b), A takes the best wallet-maker ask; `c2`: B takes A's offer. */
+  takes: Partial<Record<'ladder' | 'c2', TakeState>>;
   dust: Array<{ step: string; beforeSpecks: string; afterSpecks: string }>;
   /** The sponsor's unshielded address (public): the batcher submitter of the take. */
   submitter?: string;
 }
 function loadState(): TrdState {
-  if (!existsSync(STATE_FILE)) return { accounts: {}, funded: {}, dust: [] };
-  return JSON.parse(readFileSync(STATE_FILE, 'utf8')) as TrdState;
+  if (!existsSync(STATE_FILE)) return { accounts: {}, funded: {}, takes: {}, dust: [] };
+  const s = JSON.parse(readFileSync(STATE_FILE, 'utf8')) as TrdState;
+  s.takes ??= {};
+  return s;
 }
 function saveState(s: TrdState): void {
   mkdirSync(STATE_DIR, { recursive: true });
@@ -381,9 +398,9 @@ async function recordDust(state: TrdState, step: string, before: bigint): Promis
 const dustSpent = (state: TrdState) =>
   state.dust.reduce((t, d) => t + (BigInt(d.beforeSpecks) - BigInt(d.afterSpecks)), 0n);
 
-async function ensureAccounts(state: TrdState): Promise<void> {
+async function ensureAccounts(state: TrdState, which: 'A' | 'B'): Promise<void> {
   const rt = await runtime();
-  if (!state.accounts.A) {
+  if (which === 'A' && !state.accounts.A) {
     const g = JSON.parse(readFileSync(A_STATE_FILE, 'utf8'));
     const address = norm(String(g.account.address));
     const l: any = await rt.ledgerState(address);
@@ -402,7 +419,7 @@ async function ensureAccounts(state: TrdState): Promise<void> {
       },
     });
   }
-  if (!state.accounts.B?.address) {
+  if (which === 'B' && !state.accounts.B?.address) {
     if (dustSpent(state) + REGISTRATION_ESTIMATE_SPECKS > DUST_STOP_SPECKS)
       throw new Error('no DUST budget left to register B');
     // The device key is written BEFORE it is used (exclusive create, mode 600).
@@ -608,7 +625,7 @@ async function tradeDeps(captured: { offers: ProvenAccountOffer[] }): Promise<Tr
 
 async function makeOffer(state: TrdState): Promise<void> {
   if (state.offer) return;
-  const legs = orderLegs('sell', STOCK, USDC, OFFER_QTY, parsePrice(OFFER_PRICE, USDC));
+  const legs = orderLegs('sell', STOCK, USDC, C2_QTY, parsePrice(C2_PRICE, USDC));
   const { payload, passportAuth, coin } = await signedTrade('A', legs.give, legs.want);
   const captured = { offers: [] as ProvenAccountOffer[] };
   const deps = await tradeDeps(captured);
@@ -620,7 +637,7 @@ async function makeOffer(state: TrdState): Promise<void> {
     result = await runTrade('open-swap', 'A', payload as never, passportAuth, deps, stages);
   } catch (e) {
     const p = captured.offers[0];
-    evidence('03-offer', {
+    evidence('05-c2-offer', {
       refused: errorChain(e),
       stages,
       proven: p ? { offerId: p.offerId, bytes: p.bytes.length, structure: p.structure, steering: p.steering } : null,
@@ -634,8 +651,8 @@ async function makeOffer(state: TrdState): Promise<void> {
   state.offer = { offerId: String(result.offerId), payload, result, madeAt: new Date().toISOString() };
   saveState(state);
   await recordDust(state, 'offer-A', before);
-  evidence('03-offer', {
-    order: { side: 'sell', quantity: '2', price: OFFER_PRICE, give: legs.give, want: legs.want, rounded: legs.rounded },
+  evidence('05-c2-offer', {
+    order: { side: 'sell', quantity: '10', price: C2_PRICE, give: legs.give, want: legs.want, rounded: legs.rounded },
     maker: state.accounts.A!.address,
     coin: { nonce: coin.nonce, value: coin.value, mtIndex: coin.mtIndex },
     signatures: 1,
@@ -654,11 +671,14 @@ async function makeOffer(state: TrdState): Promise<void> {
   });
 }
 
-async function takeOffer(state: TrdState): Promise<void> {
-  if (state.take?.result) return;
-  const offer = state.offer!;
-  // B reads the offer from the book, as the page does, and takes it whole.
-  const kernel = await getJson(`${NET.zswap.kernelUrl}/v1/offers/${offer.offerId}`);
+/**
+ * `by` takes the whole offer `offerId` from the book, as the page does: the complement of its legs,
+ * paid from one coin, through the relay's take executor (maker check, guaranteed proof, merge,
+ * cost(params, true), the batcher).
+ */
+async function takeAs(state: TrdState, key: 'ladder' | 'c2', by: 'A' | 'B', offerId: string, name: string) {
+  if (state.takes[key]?.result) return;
+  const kernel = await getJson(`${NET.zswap.kernelUrl}/v1/offers/${offerId}`);
   if (kernel.status !== 200) throw new Error(`the kernel does not list the offer (${kernel.status})`);
   const g = kernel.body.computed.gives[0];
   const w = kernel.body.computed.wants[0];
@@ -668,19 +688,20 @@ async function takeOffer(state: TrdState): Promise<void> {
     usdcRaw: BigInt(norm(g.token) === norm(STOCK.midnightColour) ? w.amount : g.amount),
   };
   const legs = takeLegs(entry, STOCK, USDC);
-  const { payload, passportAuth, coin } = await signedTrade('B', legs.give, legs.want);
-  const takePayload: TakePayload = { ...payload, offerId: offer.offerId };
+  const { payload, passportAuth, coin } = await signedTrade(by, legs.give, legs.want);
+  const takePayload: TakePayload = { ...payload, offerId };
   const captured = { offers: [] as ProvenAccountOffer[] };
   const deps = await tradeDeps(captured);
   const stages: Array<Record<string, unknown>> = [];
   const before = await sponsorDust();
   const walkA = await walk(state.accounts.A!);
-  const walkB = await walk(state.accounts.B!);
+  const walkB = state.accounts.B?.address ? await walk(state.accounts.B) : null;
+  const statusBefore = (await getJson(`${NET.zswap.kernelUrl}/v1/offers/${offerId}/status`)).body;
   const t0 = Date.now();
   let result: Record<string, unknown> | null = null;
   let error: string | null = null;
   try {
-    result = await runTrade('take', 'B', takePayload as never, passportAuth, deps, stages);
+    result = await runTrade('take', by, takePayload as never, passportAuth, deps, stages);
   } catch (e) {
     error = errorChain(e);
   }
@@ -699,7 +720,7 @@ async function takeOffer(state: TrdState): Promise<void> {
       );
       const rt = await runtime();
       const pdp: any = (rt as any).shared.publicDataProvider;
-      const params = (await pdp.queryZSwapAndContractState(state.accounts.B!.address))[2];
+      const params = (await pdp.queryZSwapAndContractState(state.accounts[by]!.address))[2];
       const m = mergeForSettlement(makerTx, taker.tx as never, params);
       const bytes: Uint8Array = (m.merged as any).serialize();
       merged = {
@@ -711,27 +732,58 @@ async function takeOffer(state: TrdState): Promise<void> {
         makerCostAlone: readCost(makerTx, params),
         takerCostAlone: readCost(taker.tx, params),
       };
-      state.take = { offerId: offer.offerId, mergedHex: hex(bytes), at: new Date().toISOString() };
+      state.takes[key] = { offerId, by, mergedHex: hex(bytes), at: new Date().toISOString() };
     } catch (e) {
       merged = { error: errorChain(e) };
     }
   }
-  state.take = {
-    ...(state.take ?? { offerId: offer.offerId, at: new Date().toISOString() }),
+  state.takes[key] = {
+    ...(state.takes[key] ?? { offerId, by, at: new Date().toISOString() }),
     ...(result ? { result } : {}),
     ...(error ? { error } : {}),
   };
   saveState(state);
-  await recordDust(state, 'take-B', before);
-  evidence('04-take', {
-    offerId: offer.offerId,
+  // The kernel's status transition, as the page would see it.
+  const transitions: Array<{ at: string; status: unknown }> = [
+    { at: new Date(t0).toISOString(), status: statusBefore },
+  ];
+  if (result) {
+    for (let i = 0; i < 45; i++) {
+      const st = (await getJson(`${NET.zswap.kernelUrl}/v1/offers/${offerId}/status`)).body;
+      if (JSON.stringify(st) !== JSON.stringify(transitions.at(-1)!.status))
+        transitions.push({ at: new Date().toISOString(), status: st });
+      if (st?.status === 'consumed') break;
+      await sleep(4000);
+    }
+  }
+  // The taker's walk: the wanted coin and the change arrive with inbox entries.
+  const walkAfter = result
+    ? await waitWalk(
+        state.accounts[by]!,
+        (x) => x.coins.some((c) => c.nonce === payload.wantNonce && c.mtIndex !== null),
+        'the bought coin in the taker walk',
+      ).catch(() => null)
+    : null;
+  await recordDust(state, `take-${key}`, before);
+  evidence(name, {
+    offerId,
+    kernelStatusTransitions: transitions,
+    after: walkAfter
+      ? {
+          holdings: holdings(walkAfter.coins),
+          inbox: walkAfter.inboxCount,
+          authNonce: walkAfter.authNonce,
+          boughtCoin: walkAfter.coins.find((c) => c.nonce === payload.wantNonce) ?? null,
+          spentCoin: walkAfter.coins.find((c) => c.nonce === coin.nonce) ?? null,
+        }
+      : null,
     book: {
       side: entry.side,
       stockRaw: entry.stockRaw,
       usdcRaw: entry.usdcRaw,
       kernelStatus: kernel.body.computed?.status,
     },
-    taker: state.accounts.B!.address,
+    taker: { label: by, account: state.accounts[by]!.address },
     legs: { give: legs.give, want: legs.want },
     coin: { nonce: coin.nonce, value: coin.value, mtIndex: coin.mtIndex },
     signatures: 1,
@@ -745,10 +797,36 @@ async function takeOffer(state: TrdState): Promise<void> {
     merged,
     before: {
       A: { holdings: holdings(walkA.coins), inbox: walkA.inboxCount, authNonce: walkA.authNonce },
-      B: { holdings: holdings(walkB.coins), inbox: walkB.inboxCount, authNonce: walkB.authNonce },
+      B: walkB ? { holdings: holdings(walkB.coins), inbox: walkB.inboxCount, authNonce: walkB.authNonce } : null,
     },
   });
   if (error) throw new Error(`the take failed: ${error}`);
+}
+
+/** The best ask on the book for wStkA against wUSDC: the lowest wUSDC per wStkA, whole offer. */
+async function bestLadderAsk(state: TrdState): Promise<{ offerId: string; stockRaw: bigint; usdcRaw: bigint }> {
+  const book = await getJson(`${NET.zswap.kernelUrl}/v1/offers?limit=100`);
+  const own = new Set([state.offer?.offerId].filter(Boolean));
+  const asks = ((book.body?.offers ?? []) as any[])
+    .filter((o) => o.computed?.gives?.length === 1 && o.computed?.wants?.length === 1)
+    .map((o) => ({ o, g: o.computed.gives[0], w: o.computed.wants[0] }))
+    .filter(
+      ({ o, g, w }) =>
+        !own.has(o.offerId) &&
+        g.type === 'SHIELDED' &&
+        w.type === 'SHIELDED' &&
+        norm(g.token) === norm(STOCK.midnightColour) &&
+        norm(w.token) === norm(USDC.midnightColour),
+    )
+    .map(({ o, g, w }) => ({ offerId: String(o.offerId), stockRaw: BigInt(g.amount), usdcRaw: BigInt(w.amount) }))
+    // Lowest price first: usdc_a / stock_a < usdc_b / stock_b.
+    .sort((a, b) => (a.usdcRaw * b.stockRaw < b.usdcRaw * a.stockRaw ? -1 : 1));
+  evidence('03-ladder-book', {
+    offers: (book.body?.offers ?? []).length,
+    asks: asks.map((a) => ({ offerId: a.offerId, stockRaw: a.stockRaw, usdcRaw: a.usdcRaw })),
+  });
+  if (!asks[0]) throw new Error('no wStkA/wUSDC ask on the book');
+  return asks[0];
 }
 
 async function liveWindow(): Promise<void> {
@@ -757,11 +835,30 @@ async function liveWindow(): Promise<void> {
     await sponsor()
   ).withWallet(async (w: any) => String(w.unshieldedKeystore.getBech32Address().asString()));
   saveState(state);
-  await ensureAccounts(state);
-  await fundOne(state, 'A', STOCK.midnightColour, FUND_A_STOCK);
-  await fundOne(state, 'B', USDC.midnightColour, FUND_B_USDC);
+  // (b): the reused account A takes ONE ladder ask (a wallet maker's legs sit in segment 0).
+  await ensureAccounts(state, 'A');
+  await fundOne(state, 'A', USDC.midnightColour, FUND_A_USDC);
+  if (!state.takes.ladder?.result) {
+    const ask = state.takes.ladder?.offerId ? { offerId: state.takes.ladder.offerId } : await bestLadderAsk(state);
+    await takeAs(state, 'ladder', 'A', ask.offerId, '04-take-ladder');
+  }
+  // (c2) needs a second account: registered and funded now, the offer and its take run through
+  // the UI (test/stack/run-trade-live.sh) or with the `c2` command.
+  if (dustSpent(state) + REGISTRATION_ESTIMATE_SPECKS + 3n * 10n ** 15n <= DUST_STOP_SPECKS) {
+    await ensureAccounts(state, 'B');
+    await fundOne(state, 'B', USDC.midnightColour, FUND_B_USDC);
+  } else {
+    say('not enough DUST budget left for a second account: (c2) is skipped', { spent: dust(dustSpent(state)) });
+  }
+  await verify();
+}
+
+/** (c2) by the driver: A offers 10 wStkA at 0.02, B takes it whole. */
+async function c2(): Promise<void> {
+  const state = loadState();
+  if (!state.accounts.B?.address) throw new Error('B is not registered');
   await makeOffer(state);
-  await takeOffer(state);
+  await takeAs(state, 'c2', 'B', state.offer!.offerId, '06-c2-take');
   await verify();
 }
 
@@ -769,9 +866,17 @@ async function liveWindow(): Promise<void> {
 
 async function verify(): Promise<void> {
   const state = loadState();
-  const offerId = state.offer?.offerId;
-  const status = offerId ? await getJson(`${NET.zswap.kernelUrl}/v1/offers/${offerId}/status`) : null;
-  const out: Record<string, unknown> = { offerStatus: status?.body ?? null };
+  const out: Record<string, unknown> = {};
+  for (const [key, t] of Object.entries(state.takes)) {
+    const st = await getJson(`${NET.zswap.kernelUrl}/v1/offers/${t.offerId}/status`);
+    out[`take-${key}`] = {
+      offerId: t.offerId,
+      by: t.by,
+      kernelStatus: st.body,
+      result: t.result ?? null,
+      error: t.error ?? null,
+    };
+  }
   for (const label of ['A', 'B'] as const) {
     const a = state.accounts[label];
     if (!a?.address) continue;
@@ -784,7 +889,7 @@ async function verify(): Promise<void> {
       coins: w.coins,
     };
   }
-  const txHash = (state.take?.result as any)?.txHash;
+  const txHash = (state.takes.ladder?.result as any)?.txHash;
   if (txHash) {
     const q = await getJson(NET.midnight.indexerUrl, {
       method: 'POST',
@@ -796,23 +901,24 @@ async function verify(): Promise<void> {
     });
     out.settlingTransaction = q.body?.data ?? q.body;
   }
-  evidence('05-verify', out);
+  evidence('07-verify', out);
 }
 
 async function replay(): Promise<void> {
   const state = loadState();
-  if (!state.take?.mergedHex) throw new Error('no settled take to replay');
+  const take = state.takes.ladder;
+  if (!take?.mergedHex || !take.result) throw new Error('no settled take to replay');
   // The submitter address the take used (public, recorded during the window): no wallet needed.
   const address = state.submitter;
   if (!address) throw new Error('the window did not record the submitter address');
   const r = await submitToBatcher({
     batcherUrl: NET.zswap.batcherUrl,
-    txHex: state.take.mergedHex,
+    txHex: take.mergedHex,
     address,
     timeoutMs: 180_000,
   });
-  evidence('06-replay', {
-    offerId: state.take.offerId,
+  evidence('08-replay', {
+    offerId: take.offerId,
     batcher: { ok: r.ok, httpStatus: r.httpStatus, error: r.error, transactionHash: r.transactionHash ?? null },
     refused: !r.ok,
   });
@@ -828,6 +934,9 @@ try {
       break;
     case 'window':
       await liveWindow();
+      break;
+    case 'c2':
+      await c2();
       break;
     case 'verify':
       await verify();

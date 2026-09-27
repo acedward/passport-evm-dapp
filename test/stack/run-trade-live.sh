@@ -3,9 +3,9 @@
 # the two accounts. One make and one take, by the accounts' own pages:
 #
 #   test/stack/run-trade-live.sh up                    funding lock + proof server + relay (stagenet)
-#   test/stack/run-trade-live.sh phase make B          B's page: sell 1 wStkA at 1.00 (one signature)
-#   test/stack/run-trade-live.sh phase take A          A's page: takes that offer whole (one signature)
-#   test/stack/run-trade-live.sh phase reconcile B     B's page: My offers shows it filled
+#   test/stack/run-trade-live.sh phase make A          A's page: sell 10 wStkA at 0.02 (one signature)
+#   test/stack/run-trade-live.sh phase take B          B's page: takes that offer whole (one signature)
+#   test/stack/run-trade-live.sh phase reconcile A     A's page: My offers shows it filled
 #   test/stack/run-trade-live.sh down                  remove the relay, the proof server and the
 #                                                      network; release the funding lock
 #
