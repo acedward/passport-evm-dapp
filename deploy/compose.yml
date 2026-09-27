@@ -51,6 +51,7 @@ services:
       KEYS_VERIFY_ONCHAIN_EVERY_START: ${KEYS_VERIFY_ONCHAIN_EVERY_START:-true}
       KEYS_MIN_FREE_GB: ${KEYS_MIN_FREE_GB:-10}
       KEYS_IMPORT_DIR: ${KEYS_IMPORT_DIR:-}
+      KEYS_ACCOUNT_SOURCE_SHA256: ${KEYS_ACCOUNT_SOURCE_SHA256:-}
       MIDNIGHT_PP: /zk-params
     volumes:
       - keys:/app/vendor/passport/contract/contracts/managed
