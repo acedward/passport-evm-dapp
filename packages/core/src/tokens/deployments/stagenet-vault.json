@@ -1,0 +1,212 @@
+{
+  "network": "stagenet",
+  "project": "AA 00037 — witness-free Sig Network ERC20 vault (erc20-vault v0.3.0 / @sig-net 0.23.0 re-base)",
+  "nodeVersion": "2.0.0-d9729c13",
+  "vaultContractAddress": "7771c9e53afb45291ae2cecd48b5d55262734b08a98fc8276ed0f980031cd637",
+  "deployTx": {
+    "txId": "00d85ae7fa8117011bef3676080695e94faf87930506d692a65de596678ff4e057",
+    "txHash": "21e23697f1790ca5b649733585eaaf78ace757b00cc21aee7d6d4a63314a12de",
+    "blockHeight": 638006,
+    "blockHash": "15dd7a9b91987a50fe27c08deb376e34c672c10297f1d0786f3d805495a060cb",
+    "status": "SucceedEntirely",
+    "seconds": 19.6,
+    "atUtc": "2026-09-27T00:29:27.074Z"
+  },
+  "initialiseTx": {
+    "txId": "00ea334bba59e14a35dd6ca7e2cace8efc1ec184ec534b7ef5aa9d830e539e1025",
+    "txHash": "fa6c6ceb6d9bcd04ef458dc5ff7fd685af27650cdc77f8300d982dd0d4268d4a",
+    "blockHeight": 638011,
+    "blockHash": "78a3c0cb1cc90f36203dd3b7fa361390953be587f6ce6281f0e559703950b2d5",
+    "status": "SucceedEntirely",
+    "atUtc": "2026-09-27T00:29:56.038Z",
+    "seconds": 28.1
+  },
+  "signetSingleton": "1df4ce25fc9f9c03dc6f4d0eb12ddf3d0db094995d4c70aca1142eebb3b77a5d",
+  "mpcRootPublicKey": "0x047dd8ecafa5d9c921485b6ac33476870e98c3378e395f3c8fae92ce4943d8432847f591ab25ca454effb522ec2eaf04b7e1c83ba65ae731ea98dd52eb7d458dd4",
+  "mpcOutputCacheUrl": "https://storage.googleapis.com/midnight-cache-storage-testnet/v1/stagenet",
+  "evmChainId": "11155111",
+  "vaultEvmAddress": "0x648216975e722494bFF92E88FFc68C8F8d438FaA",
+  "mpcResponseKey": "0x0440cff984cbc1948a910c19dc6a56821d999e9951be307689630c366faa3ead90f6b56909ea9c13824a4bbc9573fb5eed9fb3d9063b60a2cfd6c9e658e8c3a34c",
+  "deployerPublicKey": "0x04c76f51faf305dd025d0fd4e45bb04e54de9ce3a230ec39aa3fa3d346facf0874a83fd86dfc49daecd3bf150d5586de3036c62a5537150d58b735c07e811034e4",
+  "maintenanceAuthority": {
+    "committee": [
+      "schnorr:d11f7ae108f40edb920629603e7f5191025f55cf9da3b06b1109e200e5891eb1"
+    ],
+    "threshold": 1,
+    "counter": "0",
+    "signingKeyFile": "~/.config/aa-00037/vault-maintenance.signing-key.json"
+  },
+  "toolchain": {
+    "compactc": "0.34.0",
+    "flags": "--feature-zkir-v3",
+    "runtime": "0.19.0",
+    "proofServer": "midnightntwrk/proof-server:9.0.0-rc.6"
+  },
+  "artefacts": {
+    "vault": {
+      "verifierKeys": {
+        "abandonDeposit": "b50ff3961af1dc904e5e2559a3a93f9a16abde58ea1a8154cd925562bf67a350",
+        "completeDeposit": "7a61ca4e09a63e4e7f713a3570f47c64e31c90d9a5301d6f454437550a44c90e",
+        "completeWithdraw": "33590f23466f75e046fc293e5f3669dade92797606d698e0ba1670697fc92776",
+        "initialise": "177e7feaef12c2f5acfebf711026bb19f4958e0cf45a6ea6261afa172c5a3d07",
+        "refundWithdraw": "03fcc5a2ab10c95080e4d704c7cac2a072de389b0d0b3c8a66771e5775c57869",
+        "startDeposit": "92eecf2be3aae82c1771c5a7bd7f4a85e51b3fe11c6377e929b3b6b218094990",
+        "startWithdraw": "23c977cec9866eab96e3998d61af39d3812e299ccbcbd3fd9d4102fcc9b2717c"
+      },
+      "zkir": {
+        "abandonDeposit": "6779308fb85d9b3ff526488aaf03ee377964a11e7f21a88212fb40b06b7c19d2",
+        "completeDeposit": "3a09c6f428a93f89ed6d803d77501353774f276371da952340546e96ea859afc",
+        "completeWithdraw": "bc93485b52141d8a66449c950ee458c09830d030e26ae4a87f0548ef92c5aee0",
+        "initialise": "59c1f7903761b03105694a6917110ff98bfcee030e462a1ad316ec541351e9e1",
+        "refundWithdraw": "e01dc37a0dddf7f77c1c42c0a402471073138255f2a91cb69e048fa6fcf29114",
+        "startDeposit": "d32b060c3e02cfcab6244439d61a84d764e353861f93afc668d5ea838780c461",
+        "startWithdraw": "8c7ba9ec97b55a9943627d2c7fbb74bb70410ebbf62adacc20c0f572b9f15e1d"
+      },
+      "contractInfoSha256": "d033fc5fd63adad34f3dacfbe835a44a1f895ed7ebda5221191fe3b1ba71f347",
+      "sourceSha256": "309e8fc8d407b30325d44706fb07177887c421258affd2fa69702fc228036d84",
+      "fingerprint": "8d606283ff44ddac8abd167a368b436570158752c503d0a5bdd7e25dc3fcfc61",
+      "compiler": {
+        "compiler": "0.34.0",
+        "language": "0.26.0",
+        "runtime": "0.19.0"
+      }
+    },
+    "signetSigner": {
+      "verifierKeys": {
+        "respond": "eb818b22d69927732dd5f27674fc500e9e0784b729bf60025379128e6e3e1453",
+        "respondBidirectional": "b8f00268018b1c1ea09d067929559e6e2f4e1b8b5f2b5fcf162087fda8014647",
+        "signBidirectional": "101ac368e366286272dbabd81ea7ca5c192e34fc69b7a3f5159d85054625214f"
+      },
+      "zkir": {
+        "respond": "0ff1fee97ed8d3362e69d526bac84ae2a7eb49b535d7506f315efdb0677099db",
+        "respondBidirectional": "d85c05f454e88af6c60e6055ba86ae079b3c99223d6f2f35b337c6f150cc08b6",
+        "signBidirectional": "1f8516f9ae6159d5ad0e99b91e57d238a4c233a33e7763e950cfe44ca4f1d76a"
+      },
+      "contractInfoSha256": "b30f60ef1322adb4498fc7b1d6f4e803fec2bea0bec70fb1d1215f5c128d33d1",
+      "sourceSha256": "004c8acdef1bd689480ecb544830262076d180739591be65f822eed480cad808",
+      "fingerprint": "b0c3c9ace8f2c6fad3f264a3f84a9a9656453f1186f01e290c9e9002f39deceb",
+      "compiler": {
+        "compiler": "0.34.0",
+        "language": "0.26.0",
+        "runtime": "0.19.0"
+      }
+    }
+  },
+  "bridgedTokens": [
+    {
+      "erc20": "stkA",
+      "erc20Address": "0x2Ab7BE0769e3BBD5c7d047B422CB383fCC06FB52",
+      "midnightName": "wStkA",
+      "midnightColour": "5eb2a3cebb2ebe7ba910c78f62c9e28e0d74acbd00c810730def3578860e6a02",
+      "decimals": 6,
+      "confirmedByDeposit": {
+        "requestId": "417498378b0e6c0b8e1a9cbef10e939fb517668547bd922c683885924d2f2a00",
+        "startDepositTx": "00eb889b8378363ea0a34f526876d27c59bb8a769b3eaa9f265753e15e721d5f64",
+        "sepoliaSweepTx": "0x78cb0e2e06b20e2f25849ff062661dd6ee214e4a08f2802c468e9b0d95d9165e",
+        "completeDepositTx": "00cc16b0ac7a145670d099752a9ab67ed6af985e81d8c9660a9f565e7ed3b7ae40",
+        "minted": "100000000"
+      }
+    },
+    {
+      "erc20": "stkB",
+      "erc20Address": "0xF2bEFf36543219C8feC2AB2f42070AA65D3C844B",
+      "midnightName": "wStkB",
+      "midnightColour": "e7ca18cb056477a5aca5cce387306d56526c2f226b4a4e34f068e3a3e8179588",
+      "decimals": 6,
+      "confirmedByDeposit": {
+        "requestId": "243834870282028116bd6cf27abf6dfd175cbe8a575af2c9cd0fbae01f457000",
+        "startDepositTx": "00f1ca51455bb79d108e5589758f9a98262c51d9ff0e0a97f9432496474327a63c",
+        "sepoliaSweepTx": "0xac7c801f03627aec06853e62a16aeb7f848080cb50ef5074178b53240e77237a",
+        "completeDepositTx": "00f54985a9bb428d8bddca76f255cf954cdfe416da24a385f68a24f8effa79dd56",
+        "minted": "100000000"
+      }
+    },
+    {
+      "erc20": "stkC",
+      "erc20Address": "0x70c5c1978e5d428fa5C82111980e1aF0A64a270D",
+      "midnightName": "wStkC",
+      "midnightColour": "db8ae472c587a0709094eeaf98b81a0d46752db1a807e77bd209814e808f19d9",
+      "decimals": 6,
+      "confirmedByDeposit": {
+        "requestId": "6f0b4d178838a63fc3be4eb946c3828cb70455bdad87362ddce649f17d487700",
+        "startDepositTx": "0099345eac5eadfa0f2b877ea5c97d877145e4e694fa5a965a2412ed17baf30f4a",
+        "sepoliaSweepTx": "0x6e506a2df774e29688f16a5eda1222fbcd602a227481f8f857204105b860f133",
+        "completeDepositTx": "00e14d5c843497dab00d5b0297eab2277eba0afb395a40082bb9f15392a0e192cf",
+        "minted": "100000000"
+      }
+    },
+    {
+      "erc20": "USDC",
+      "erc20Address": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+      "midnightName": "wUSDC",
+      "midnightColour": "e5afe273bcb1252cfbc81ad6ca1caaafe22312c8c29f9b104a2fe3ead980bb2d",
+      "decimals": 6,
+      "confirmedByDeposit": {
+        "requestId": "a79f899e7a5b6f61e3d3e85efb1c587f6e6ce1e5394984d5d26e68317111f400",
+        "startDepositTx": "00614e12fbfb305aace0907aabb2cf4a245b336f2b008fcbb4afc28513c2c106d2",
+        "sepoliaSweepTx": "0xd4a77efea68cb3414d97ba21f2a83a85f2ef6fe037b838f615258d467ec73c69",
+        "completeDepositTx": "00af812eb322a9f357c49c90a025f727bd0313403091703c694f41f994f4d1cbb8",
+        "minted": "50000000"
+      }
+    }
+  ],
+  "depositAddresses": {
+    "c6a35196428ac58a956e93e0c3c7c7df254e428a827291e9111fde7037cd34a1": "0x5f89AB8632a7Cf386a32a1634D4F23312c0F3714"
+  },
+  "updatedUtc": "2026-09-27T15:09:32.097Z",
+  "withdrawRuns": [
+    {
+      "token": "stkA",
+      "amount": "1000000",
+      "dest": "0x484738A67858305Edfc139B194Ed430Fe4D8e56b",
+      "requestId": "37df446078eeb41684c4e3f6546592688b5c2fcddc6d5cffaf9fd5aed53c0100",
+      "startWithdrawTx": "0049d5835627881bbd817f9fc405a047fd421406f607090b7507c0c033a64b985d",
+      "sepoliaTransferTx": "0xa87fa802c0fbdc709cd6d240665efb5a08dec4643571ee32f7ba9b719a565a3f",
+      "completeWithdrawTx": "008233cc196b5a80ffec5d26a0dcd88c811def049cddd158f37914492cacee1ec0",
+      "branch": "success"
+    }
+  ],
+  "explorer": "https://sig-net.github.io/explorer/midnight/explorer?networkId=stagenet",
+  "depositRuns": [
+    {
+      "run": "stkA",
+      "token": "stkA",
+      "amount": "100000000",
+      "requestId": "417498378b0e6c0b8e1a9cbef10e939fb517668547bd922c683885924d2f2a00",
+      "startDepositTx": "00eb889b8378363ea0a34f526876d27c59bb8a769b3eaa9f265753e15e721d5f64",
+      "sepoliaSweepTx": "0x78cb0e2e06b20e2f25849ff062661dd6ee214e4a08f2802c468e9b0d95d9165e",
+      "completeDepositTx": "00cc16b0ac7a145670d099752a9ab67ed6af985e81d8c9660a9f565e7ed3b7ae40",
+      "minted": "100000000"
+    },
+    {
+      "run": "stkB",
+      "token": "stkB",
+      "amount": "100000000",
+      "requestId": "243834870282028116bd6cf27abf6dfd175cbe8a575af2c9cd0fbae01f457000",
+      "startDepositTx": "00f1ca51455bb79d108e5589758f9a98262c51d9ff0e0a97f9432496474327a63c",
+      "sepoliaSweepTx": "0xac7c801f03627aec06853e62a16aeb7f848080cb50ef5074178b53240e77237a",
+      "completeDepositTx": "00f54985a9bb428d8bddca76f255cf954cdfe416da24a385f68a24f8effa79dd56",
+      "minted": "100000000"
+    },
+    {
+      "run": "stkC",
+      "token": "stkC",
+      "amount": "100000000",
+      "requestId": "6f0b4d178838a63fc3be4eb946c3828cb70455bdad87362ddce649f17d487700",
+      "startDepositTx": "0099345eac5eadfa0f2b877ea5c97d877145e4e694fa5a965a2412ed17baf30f4a",
+      "sepoliaSweepTx": "0x6e506a2df774e29688f16a5eda1222fbcd602a227481f8f857204105b860f133",
+      "completeDepositTx": "00e14d5c843497dab00d5b0297eab2277eba0afb395a40082bb9f15392a0e192cf",
+      "minted": "100000000"
+    },
+    {
+      "run": "USDC",
+      "token": "USDC",
+      "amount": "50000000",
+      "requestId": "a79f899e7a5b6f61e3d3e85efb1c587f6e6ce1e5394984d5d26e68317111f400",
+      "startDepositTx": "00614e12fbfb305aace0907aabb2cf4a245b336f2b008fcbb4afc28513c2c106d2",
+      "sepoliaSweepTx": "0xd4a77efea68cb3414d97ba21f2a83a85f2ef6fe037b838f615258d467ec73c69",
+      "completeDepositTx": "00af812eb322a9f357c49c90a025f727bd0313403091703c694f41f994f4d1cbb8",
+      "minted": "50000000"
+    }
+  ]
+}

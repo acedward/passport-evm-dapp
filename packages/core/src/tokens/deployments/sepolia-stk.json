@@ -1,0 +1,52 @@
+{
+  "network": "sepolia",
+  "chainId": 11155111,
+  "project": "AA 00037 \u2014 stkA/stkB/stkC ERC20s bridged to Midnight stagenet",
+  "source": "evm/stk-tokens/src/StkToken.sol (OpenZeppelin 5.4.0 ERC20, solc 0.8.28, optimizer 200, evm cancun)",
+  "deployer": "0x484738A67858305Edfc139B194Ed430Fe4D8e56b",
+  "holder": "0x484738A67858305Edfc139B194Ed430Fe4D8e56b",
+  "deployedUtc": "2026-09-27T00:09:26Z",
+  "sourceVerification": "skipped \u2014 no Etherscan API key in the environment (plan P1, optional)",
+  "tokens": [
+    {
+      "symbol": "stkA",
+      "name": "stkA",
+      "decimals": 6,
+      "totalSupply": "1000000000000",
+      "address": "0x2Ab7BE0769e3BBD5c7d047B422CB383fCC06FB52",
+      "deployTx": "0x8500cac3fcd791214c79c6b1447b2cd05d554eedee28e7334a215542d7fe4d3f",
+      "block": 11789654,
+      "midnightName": "wStkA",
+      "midnightColour": "5eb2a3cebb2ebe7ba910c78f62c9e28e0d74acbd00c810730def3578860e6a02",
+      "midnightVault": "7771c9e53afb45291ae2cecd48b5d55262734b08a98fc8276ed0f980031cd637"
+    },
+    {
+      "symbol": "stkB",
+      "name": "stkB",
+      "decimals": 6,
+      "totalSupply": "1000000000000",
+      "address": "0xF2bEFf36543219C8feC2AB2f42070AA65D3C844B",
+      "deployTx": "0xb36b024f21f1392bdea8d1c132c6f3601b1e6990fec2a51470cdde06ef2089c3",
+      "block": 11789655,
+      "midnightName": "wStkB",
+      "midnightColour": "e7ca18cb056477a5aca5cce387306d56526c2f226b4a4e34f068e3a3e8179588",
+      "midnightVault": "7771c9e53afb45291ae2cecd48b5d55262734b08a98fc8276ed0f980031cd637"
+    },
+    {
+      "symbol": "stkC",
+      "name": "stkC",
+      "decimals": 6,
+      "totalSupply": "1000000000000",
+      "address": "0x70c5c1978e5d428fa5C82111980e1aF0A64a270D",
+      "deployTx": "0x64effcff9d94fe638f4099a7264e72040bec2702bd482fb9440545b70beb41ef",
+      "block": 11789656,
+      "midnightName": "wStkC",
+      "midnightColour": "db8ae472c587a0709094eeaf98b81a0d46752db1a807e77bd209814e808f19d9",
+      "midnightVault": "7771c9e53afb45291ae2cecd48b5d55262734b08a98fc8276ed0f980031cd637"
+    }
+  ],
+  "notes": [
+    "The Midnight colours are tokenType(vaultTokenDomainSeparator(erc20), vault) of the stagenet vault in stagenet-vault.json; each was confirmed by its first mint (project 00037 P4, 2026-09-27).",
+    "These wStk colours are NOT the native stagenet stkA/stkB/stkC of Offer Files 00052 (owner Q4)."
+  ]
+}
