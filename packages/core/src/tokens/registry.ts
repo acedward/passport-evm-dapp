@@ -10,8 +10,9 @@ import { z } from 'zod';
 
 import { normaliseHex32 } from '../hex.js';
 import type { NetworkName } from '../network.js';
-import sepoliaStk from './deployments/sepolia-stk.json' with { type: 'json' };
-import stagenetVault from './deployments/stagenet-vault.json' with { type: 'json' };
+// Named imports, so a browser bundle carries only these fields of the vendored records.
+import { tokens as sepoliaStkTokens } from './deployments/sepolia-stk.json';
+import { bridgedTokens, vaultContractAddress } from './deployments/stagenet-vault.json';
 
 export const TOKEN_ROLES = ['usdc', 'stock'] as const;
 export type TokenRole = (typeof TOKEN_ROLES)[number];
@@ -133,8 +134,8 @@ const USDC_SYMBOLS = new Set(['USDC']);
 const PROVISIONAL_SYMBOLS = new Set(['USDC']);
 
 export function stagenetRegistry(): TokenRegistry {
-  const stk = new Map(sepoliaStk.tokens.map((t) => [t.address.toLowerCase(), t]));
-  const tokens = stagenetVault.bridgedTokens.map((b): TokenEntry => {
+  const stk = new Map(sepoliaStkTokens.map((t) => [t.address.toLowerCase(), t]));
+  const tokens = bridgedTokens.map((b): TokenEntry => {
     const sepolia = stk.get(b.erc20Address.toLowerCase());
     if (sepolia && (sepolia.decimals !== b.decimals || sepolia.midnightColour !== b.midnightColour)) {
       throw new TokenRegistryError(`${b.erc20}: sepolia-stk.json and stagenet-vault.json disagree`);
@@ -146,7 +147,7 @@ export function stagenetRegistry(): TokenRegistry {
       decimals: b.decimals,
       sepoliaAddress: getAddress(b.erc20Address),
       midnightColour: normaliseHex32(b.midnightColour),
-      vault: normaliseHex32(stagenetVault.vaultContractAddress),
+      vault: normaliseHex32(vaultContractAddress),
       provisional: PROVISIONAL_SYMBOLS.has(b.erc20),
       source: STAGENET_SOURCE,
     };

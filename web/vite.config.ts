@@ -6,6 +6,9 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   plugins: [react()],
   base: './',
+  // Keep JSON as per-field exports (never one JSON.parse blob), so the bundle carries only the
+  // fields of the vendored deployment records that the code actually imports.
+  json: { namedExports: true, stringify: false },
   build: {
     target: 'es2022',
     outDir: 'dist',

@@ -6,7 +6,15 @@
 
 import { z } from 'zod';
 
-import stagenetVault from './tokens/deployments/stagenet-vault.json' with { type: 'json' };
+// Named imports, so a browser bundle carries only these fields of the vendored record.
+import {
+  explorer as stagenetBridgeExplorer,
+  mpcOutputCacheUrl,
+  mpcRootPublicKey,
+  signetSingleton,
+  vaultContractAddress,
+  vaultEvmAddress,
+} from './tokens/deployments/stagenet-vault.json';
 
 export const SEPOLIA_CHAIN_ID = 11155111;
 export const SEPOLIA_CHAIN_ID_HEX = '0xaa36a7';
@@ -87,12 +95,12 @@ export const STAGENET: NetworkProfile = {
   },
   evm: { ...SEPOLIA },
   bridge: {
-    vaultAddress: stagenetVault.vaultContractAddress,
-    vaultEvmAddress: stagenetVault.vaultEvmAddress,
-    signetSingleton: stagenetVault.signetSingleton,
-    mpcRootPublicKey: stagenetVault.mpcRootPublicKey,
-    mpcOutputCacheUrl: stagenetVault.mpcOutputCacheUrl,
-    explorerUrl: stagenetVault.explorer,
+    vaultAddress: vaultContractAddress,
+    vaultEvmAddress,
+    signetSingleton,
+    mpcRootPublicKey,
+    mpcOutputCacheUrl,
+    explorerUrl: stagenetBridgeExplorer,
   },
 };
 
