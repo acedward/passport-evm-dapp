@@ -152,9 +152,12 @@ function KeyValueRow({ item }: { item: KeyValueItem }) {
 export interface SegmentedOption<T extends string> {
   value: T;
   label: ReactNode;
+  /** A test id for this choice's button. */
+  testId?: string;
 }
 
-/** Two or three mutually exclusive choices as pressed/unpressed buttons (Buy | Sell). */
+/** Two or three mutually exclusive choices (Buy | Sell): a radio group drawn as joined buttons.
+ *  The arrow keys move the choice, as in a native radio group. */
 export function Segmented<T extends string>({
   label,
   options,
@@ -168,15 +171,31 @@ export function Segmented<T extends string>({
   onChange(value: T): void;
   disabled?: boolean;
 }) {
+  const move = (from: number, step: number) => {
+    const next = options[(from + step + options.length) % options.length];
+    if (next) onChange(next.value);
+  };
   return (
-    <div className="seg" role="group" aria-label={label}>
-      {options.map((o) => (
+    <div className="seg" role="radiogroup" aria-label={label}>
+      {options.map((o, i) => (
         <button
           key={o.value}
           type="button"
-          aria-pressed={o.value === value}
+          role="radio"
+          aria-checked={o.value === value}
+          tabIndex={o.value === value ? 0 : -1}
           disabled={disabled}
+          data-testid={o.testId}
           onClick={() => onChange(o.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+              e.preventDefault();
+              move(i, 1);
+            } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+              e.preventDefault();
+              move(i, -1);
+            }
+          }}
         >
           {o.label}
         </button>
