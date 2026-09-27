@@ -11,7 +11,17 @@ export interface TestWallet {
   calls: Array<{ method: string; params: unknown }>;
 }
 
-export async function installTestWallet(page: Page, opts: { startChainId?: string } = {}): Promise<TestWallet> {
+export interface FakeSepolia {
+  /** Wei the connected address holds. */
+  ethWei?: bigint;
+  /** ERC20 balances by token address (lowercase), in base units. */
+  erc20?: Record<string, bigint>;
+}
+
+export async function installTestWallet(
+  page: Page,
+  opts: { startChainId?: string; sepolia?: FakeSepolia } = {},
+): Promise<TestWallet> {
   const wallet = Wallet.createRandom();
   let chainId = opts.startChainId ?? '0x1'; // mainnet: the dApp must ask to switch to Sepolia
   const calls: TestWallet['calls'] = [];
@@ -27,6 +37,13 @@ export async function installTestWallet(page: Page, opts: { startChainId?: strin
       case 'wallet_switchEthereumChain':
         chainId = String((params[0] as { chainId: string }).chainId).toLowerCase();
         return null;
+      case 'eth_getBalance':
+        return `0x${(opts.sepolia?.ethWei ?? 0n).toString(16)}`;
+      case 'eth_call': {
+        const call = params[0] as { to?: string; data?: string };
+        const bal = opts.sepolia?.erc20?.[String(call.to).toLowerCase()] ?? 0n;
+        return `0x${bal.toString(16).padStart(64, '0')}`;
+      }
       case 'personal_sign':
         return wallet.signMessage(getBytes(String(params[0])));
       case 'eth_signTypedData_v4': {

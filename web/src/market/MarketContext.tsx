@@ -64,6 +64,14 @@ export function MarketProvider({
   return <Ctx.Provider value={ctx}>{children}</Ctx.Provider>;
 }
 
+/** The bank's token list (the site configuration's, or stagenet's built-in one), WITHOUT
+ *  starting the price feed: for views that only name tokens. */
+export function useTokenRegistry(): TokenRegistry | null {
+  const ctx = useContext(Ctx);
+  if (!ctx) throw new Error('useTokenRegistry outside MarketProvider');
+  return ctx.registry;
+}
+
 export interface MarketsValue {
   state: FeedState;
   registry: TokenRegistry | null;

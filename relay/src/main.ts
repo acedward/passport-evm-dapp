@@ -4,15 +4,19 @@
 
 import { readFileSync } from 'node:fs';
 
-import { defaultCatalogue } from './actions/catalogue.js';
+import { accountCatalogue } from './actions/catalogue.js';
 import { createApp } from './app.js';
 import { NonceStore } from './auth/nonces.js';
-import { notImplementedChainReader } from './chain/reader.js';
+import { passportCallAuthoriser } from './auth/passport-call.js';
+import { DigestReplayGuard } from './auth/verifiers.js';
+import { IndexerClient } from './chain/indexer.js';
+import { IndexerChainReader, notImplementedChainReader, type ChainReader } from './chain/reader.js';
 import { ConfigError, loadConfig } from './config.js';
 import { healthCollector, httpProbes } from './health.js';
 import { Redactor, createLogger } from './log.js';
 import { ProofServerClient } from './prover/client.js';
 import { checkKeyVolume } from './prover/keys.js';
+import { PassportRuntime } from './passport/runtime.js';
 import { JobQueue } from './queue/jobs.js';
 import { FacadeSponsorSession, openFacadeWallet } from './sponsor/facade.js';
 import { DisabledSponsorSession, type SponsorSession } from './sponsor/session.js';
@@ -34,7 +38,13 @@ async function main(): Promise<void> {
   redactor.addSecret(secrets.sepoliaRpcUrl);
   const log = createLogger({ level: config.logLevel, redactor }, { service: 'relay', network: config.network.name });
 
-  const keys = () => checkKeyVolume(config.managedPath, config.keysFingerprint);
+  /** The prover keys the account actions need (plan L-ACC). */
+  const requiredProverKeys = [
+    'account/activate_initial_device_with_evm',
+    'account/withdraw_shielded_with_evm',
+    'account/append_inbox_with_evm',
+  ];
+  const keys = () => checkKeyVolume(config.managedPath, config.keysFingerprint, requiredProverKeys);
   const keyCheck = keys();
   if (config.keysFingerprint && keyCheck.matchesPin !== true) {
     log.error('the key volume does not match RELAY_KEYS_FINGERPRINT; refusing to start', {
@@ -70,6 +80,32 @@ async function main(): Promise<void> {
     }
   }
 
+  // The Passport runtime: the pinned client bound to the key volume's compiled contracts. Without
+  // a key volume the relay still serves /health and /v1/config, and the account actions say they
+  // are not available.
+  let runtime: PassportRuntime | null = null;
+  if (config.managedPath && keyCheck.present) {
+    try {
+      runtime = await PassportRuntime.load({
+        managedPath: config.managedPath,
+        networkId: config.network.midnightNetworkId,
+        indexerUrl: config.network.midnight.indexerUrl,
+        indexerWsUrl: config.network.midnight.indexerWsUrl,
+        proofServerUrl: config.proofServerUrl,
+        log: log.child({ component: 'passport' }),
+      });
+    } catch (e) {
+      log.error('the Passport runtime could not be loaded; account actions are unavailable', { error: e });
+    }
+  }
+  const chain: ChainReader = runtime
+    ? new IndexerChainReader(
+        (account) => runtime!.ledgerState(account),
+        new IndexerClient({ indexerUrl: config.network.midnight.indexerUrl }),
+      )
+    : notImplementedChainReader;
+  const replay = new DigestReplayGuard(config.limits.authMaxTtlSeconds * 6);
+
   const nonces = new NonceStore(config.limits.nonceTtlSeconds, config.limits.maxNonces);
   const queue = new JobQueue({
     ttlSeconds: config.limits.jobTtlSeconds,
@@ -102,10 +138,18 @@ async function main(): Promise<void> {
     log,
     nonces,
     queue,
-    catalogue: defaultCatalogue(),
+    catalogue: accountCatalogue({
+      runtime: () => runtime,
+      sponsor,
+      vaultAddress: config.network.bridge.vaultAddress,
+      chainId: config.network.evm.chainId,
+      replay,
+      log: log.child({ component: 'accounts' }),
+    }),
     sponsor,
     health,
-    chain: notImplementedChainReader,
+    chain,
+    passportCall: passportCallAuthoriser(() => runtime, replay),
   });
 
   const sweeper = setInterval(() => {

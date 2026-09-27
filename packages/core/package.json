@@ -7,12 +7,14 @@
   "license": "Apache-2.0",
   "exports": {
     ".": "./src/index.ts",
-    "./passport": "./src/passport/index.ts"
+    "./passport": "./src/passport/index.ts",
+    "./passport/gated": "./src/passport/gated.ts"
   },
   "dependencies": {
     "@midnight-ntwrk/compact-runtime": "0.19.0",
     "@noble/curves": "2.2.0",
     "@noble/hashes": "2.2.0",
+    "@scure/base": "2.0.0",
     "@sig-net/midnight": "0.23.0",
     "ethers": "6.17.0",
     "zod": "4.6.5"

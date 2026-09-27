@@ -18,6 +18,7 @@ export const API_PATHS = {
   queue: '/v1/queue',
   accountState: (account: string) => `/v1/accounts/${account}/state`,
   accountInbox: (account: string) => `/v1/accounts/${account}/inbox`,
+  accountZswap: (account: string) => `/v1/accounts/${account}/zswap`,
 } as const;
 
 // ── Errors ──────────────────────────────────────────────────────────────────

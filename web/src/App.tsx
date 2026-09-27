@@ -1,6 +1,7 @@
 // The application shell: brand, wallet connection and the five sections. The layout and styling
 // are deliberately plain; the MN Bank design (P1.5) replaces them once the owner approves the
-// mockup (question Q16). Local data and Markets are complete; the other three arrive with the lanes.
+// mockup (question Q16). Accounts, Markets and Local data are complete; Transfers and Trade arrive with
+// their lanes.
 
 import { useEffect, useState } from 'react';
 
@@ -8,6 +9,7 @@ import type { NetworkProfile } from '@mnbank/core';
 
 import { loadSiteConfig, type SiteConfig } from './config.js';
 import { MarketProvider } from './market/MarketContext.js';
+import { Accounts } from './pages/Accounts.js';
 import { LocalData } from './pages/LocalData.js';
 import { Markets } from './pages/Markets.js';
 import { StoreProvider, useStore } from './store/StoreContext.js';
@@ -108,7 +110,7 @@ function ProfileRecorder({ network }: { network: string }) {
   return null;
 }
 
-function Shell({ network }: { network: NetworkProfile }) {
+function Shell({ network, config }: { network: NetworkProfile; config: SiteConfig }) {
   const [section, setSection] = useState<SectionId>(sectionFromHash);
   useEffect(() => {
     const on = () => setSection(sectionFromHash());
@@ -147,6 +149,8 @@ function Shell({ network }: { network: NetworkProfile }) {
       <main>
         {section === 'local' ? (
           <LocalData network={network.name} />
+        ) : section === 'accounts' ? (
+          <Accounts network={network} relayUrl={config.relayUrl} />
         ) : section === 'markets' ? (
           <Markets />
         ) : (
@@ -173,7 +177,7 @@ export function App() {
     <StoreProvider>
       <WalletProvider network={config.network}>
         <MarketProvider network={config.network} tokens={config.tokens}>
-          <Shell network={config.network} />
+          <Shell network={config.network} config={config} />
         </MarketProvider>
       </WalletProvider>
     </StoreProvider>

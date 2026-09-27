@@ -58,6 +58,7 @@ export {
   type ShieldedCoin,
 } from '../../../../vendor/passport/contract/src/wallet/contract.js';
 
+export * from './gated.js';
 export * from './vendor/offer-codec.js';
 export * from './vendor/signet-derive.js';
 

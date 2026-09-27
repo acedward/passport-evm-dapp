@@ -40,7 +40,8 @@ export interface RelayConfig {
   keysFingerprint: string | null;
   sponsor: {
     enabled: boolean;
-    /** The wallet SDK's fee margin in blocks (lower burns less DUST; see the Passport notes). */
+    /** The wallet SDK's fee margin in blocks: it declares fee × 1.046^margin. 5 fails the
+     *  registration's activation (BalanceCheckOverspend); 20 is tested locally and on stagenet (Q19). */
     feeBlocksMargin: number;
     /** Below this many specks (10^-15 DUST), spending actions are refused and health degrades. */
     dustLowSpecks: bigint;
@@ -237,7 +238,7 @@ export function loadConfig(env: Env, readFile: ReadFile): { config: RelayConfig;
     keysFingerprint: fingerprint,
     sponsor: {
       enabled: sponsorEnabled,
-      feeBlocksMargin: int(env.SPONSOR_FEE_BLOCKS_MARGIN, 5, 'SPONSOR_FEE_BLOCKS_MARGIN', 1, 1000),
+      feeBlocksMargin: int(env.SPONSOR_FEE_BLOCKS_MARGIN, 20, 'SPONSOR_FEE_BLOCKS_MARGIN', 1, 1000),
       dustLowSpecks: big(env.SPONSOR_DUST_LOW_SPECKS, 10n * 10n ** 15n, 'SPONSOR_DUST_LOW_SPECKS'),
       fundingLockFile,
       dedicated,

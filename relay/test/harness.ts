@@ -11,9 +11,9 @@ import {
 } from '@mnbank/core';
 
 import { defaultCatalogue, type ActionDefinition } from '../src/actions/catalogue.js';
-import { createApp } from '../src/app.js';
+import { createApp, type AppDeps } from '../src/app.js';
 import { NonceStore } from '../src/auth/nonces.js';
-import { notImplementedChainReader } from '../src/chain/reader.js';
+import { notImplementedChainReader, type ChainReader } from '../src/chain/reader.js';
 import { loadConfig, type RelayConfig } from '../src/config.js';
 import { createLogger, type Logger } from '../src/log.js';
 import { JobQueue } from '../src/queue/jobs.js';
@@ -54,7 +54,13 @@ export const silentLog = (): Logger & { lines: string[] } => {
 };
 
 export function harness(
-  opts: { config?: RelayConfig; sponsor?: SponsorSession; catalogue?: Map<RelayActionName, ActionDefinition> } = {},
+  opts: {
+    config?: RelayConfig;
+    sponsor?: SponsorSession;
+    catalogue?: Map<RelayActionName, ActionDefinition>;
+    passportCall?: AppDeps['passportCall'];
+    chain?: ChainReader;
+  } = {},
 ) {
   const config = opts.config ?? testConfig();
   const log = silentLog();
@@ -87,7 +93,8 @@ export function harness(
     catalogue,
     sponsor: opts.sponsor ?? new FakeSponsor(),
     health,
-    chain: notImplementedChainReader,
+    chain: opts.chain ?? notImplementedChainReader,
+    ...(opts.passportCall ? { passportCall: opts.passportCall } : {}),
     clientAddress: () => '198.51.100.7',
   });
   return { app, config, log, nonces, queue, catalogue };
