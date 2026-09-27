@@ -39,7 +39,7 @@ up() {
   local zip=()
   if [[ -n "${COMPACTC_ZIP:-}" ]]; then zip=(-v "$COMPACTC_ZIP:/in/compactc.zip:ro" -e COMPACTC_ZIP=/in/compactc.zip); fi
   docker run -d --name "$C" --init \
-    -v "$ROOT:/src:ro" -v "$APP:/app" -v "$BUNV:/opt/bun:ro" "${zip[@]}" \
+    -v "$ROOT:/src:ro" -v "$APP:/app" -v "$BUNV:/opt/bun:ro" ${zip[@]+"${zip[@]}"} \
     -e PATH=/opt/bun:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     -e CI=1 -w /app "$PW_IMAGE" sleep infinity >/dev/null
   x 'node --version && bun --version'
@@ -54,7 +54,9 @@ copy_tree() {
 sync() {
   # A bind mount can serve a stale copy of a file edited a moment ago, so check the copy against
   # the host's own hashes of every file git knows about, and copy again until they agree.
-  local list="$ROOT/.git/docker-check-sync.sha"
+  # A temporary file, not one under .git: in a git worktree .git is a file, not a directory.
+  local list
+  list="$(mktemp)"
   (cd "$ROOT" && git ls-files -co --exclude-standard -z | grep -zv '^vendor/' | xargs -0 shasum -a 256) >"$list"
   docker cp "$list" "$C:/tmp/host.sha" >/dev/null
   rm -f "$list"
