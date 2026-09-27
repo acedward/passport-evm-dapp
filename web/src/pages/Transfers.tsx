@@ -58,6 +58,7 @@ import {
 } from '../design/index.js';
 import { useTokenRegistry } from '../market/MarketContext.js';
 import { readCoins } from '../passport/records.js';
+import { BankNotices, useBankStatus } from '../relay/BankStatus.js';
 import { useStore } from '../store/StoreContext.js';
 import { confirmCancelsOffer, markLiveOffersCancelled } from '../trade/operations.js';
 import { useWallet } from '../wallet/WalletContext.js';
@@ -115,6 +116,7 @@ function DepositPanel({ network, tokens }: { network: NetworkProfile; tokens: To
   const list = bridged(tokens);
   const [symbol, setSymbol] = useState('');
   const [amount, setAmount] = useState('');
+  const { spendingPaused } = useBankStatus();
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<Msg>(null);
   const [status, setStatus] = useState<{
@@ -314,10 +316,15 @@ function DepositPanel({ network, tokens }: { network: NetworkProfile; tokens: To
             </Step>
             <Step title="Start the deposit">
               <p>When both have arrived, sign once to start. The bank does the rest, in about 20 minutes.</p>
+              {spendingPaused && (
+                <Notice tone="warning" data-testid="deposit-paused">
+                  Not now: {spendingPaused} What you sent stays at your deposit address meanwhile.
+                </Notice>
+              )}
               <ButtonRow>
                 <Button
                   data-testid="start-deposit"
-                  disabled={!!busy}
+                  disabled={!!busy || !!spendingPaused}
                   onClick={() =>
                     void run('start', async () => {
                       const e = env();
@@ -369,6 +376,8 @@ function WithdrawPanel({ network, tokens }: { network: NetworkProfile; tokens: T
   const [colour, setColour] = useState('');
   const [amount, setAmount] = useState('');
   const [dest, setDest] = useState('');
+  const bank = useBankStatus();
+  const paused = bank.spendingPaused ?? bank.withdrawalsPaused;
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<Msg>(null);
   const [vaultGas, setVaultGas] = useState<bigint | null>(null);
@@ -523,8 +532,13 @@ function WithdrawPanel({ network, tokens }: { network: NetworkProfile; tokens: T
           You sign once. If you withdraw part of a coin, the bank then asks for a second signature to record the change
           in your account&apos;s inbox, so it can be restored from the chain.
         </p>
+        {paused && (
+          <Notice tone="warning" className="section-gap" data-testid="withdraw-paused">
+            Not now: {paused}
+          </Notice>
+        )}
         <ButtonRow stretch className="section-gap">
-          <Button type="submit" disabled={busy} data-testid="withdraw-submit">
+          <Button type="submit" disabled={busy || !!paused} data-testid="withdraw-submit">
             {busy ? 'Starting…' : 'Sign and withdraw'}
           </Button>
         </ButtonRow>
@@ -728,10 +742,12 @@ export function Transfers({ network }: { network: NetworkProfile }) {
     <section data-testid="section-transfers">
       {head}
       {!wallet.onRightChain && (
-        <Notice tone="warning" className="panel-intro">
-          Switch your wallet to Sepolia first.
+        <Notice tone="warning" className="panel-intro" data-testid="transfers-wrong-network">
+          Switch your wallet to Sepolia first: the deposit&apos;s two sends and every signature are refused on another
+          network.
         </Notice>
       )}
+      <BankNotices place="transfers" className="panel-intro" />
       <div className="form-grid">
         <DepositPanel network={network} tokens={tokens} />
         <WithdrawPanel network={network} tokens={tokens} />

@@ -89,6 +89,15 @@ export interface SettleOutcome {
 
 export type SettleCircuit = 'bridge_deposit_complete' | 'bridge_withdraw_complete' | 'bridge_withdraw_refund';
 
+/** An attestation that already verifies for a request, found WITHOUT running the relayer loop (no
+ *  broadcast, no waiting): what the stale-request closer reads before it spends anything (Q21 A). */
+export interface Attestation {
+  kind: AttestedKind;
+  /** The attested event (circuit-input form) and output bytes, as a settle or abandon takes them. */
+  event: unknown;
+  serializedOutput: Uint8Array;
+}
+
 export interface TxFacts {
   hash: string | null;
   blockHeight: number | null;
@@ -132,6 +141,13 @@ export interface BridgeBackend {
   }): Promise<SettleOutcome>;
   /** Public facts of a Midnight transaction, by its midnight-js id; nulls when not indexed yet. */
   txFacts(txId: string): Promise<TxFacts>;
+  /** The request's attestation if the MPC has already posted one that verifies; null otherwise.
+   *  Read-only: nothing is broadcast and nothing waits (plan P4-A). */
+  attestation(kind: BridgeKind, requestId: string): Promise<Attestation | null>;
+  /** Prove and submit the VAULT's permissionless `abandonDeposit` (called directly, the sponsor
+   *  pays): it closes a deposit whose sweep the MPC attested never-executed. Nothing is minted and
+   *  nothing moves; the request leaves the vault's maps (Q21 A). */
+  abandonDeposit(input: { requestId: string; attestation: Attestation }): Promise<{ txId: string }>;
 }
 
 // ── A JSON-RPC Sepolia reader ────────────────────────────────────────────────

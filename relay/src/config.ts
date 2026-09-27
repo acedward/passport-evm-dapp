@@ -40,6 +40,18 @@ export interface RelayConfig {
   managedPath: string | null;
   /** The pinned verifier-key fingerprint of the key volume; the relay refuses to start on another. */
   keysFingerprint: string | null;
+  /** Refuse to start without a key volume (a deployment sets it; CI and UI development do not). */
+  requireKeys: boolean;
+  /** The stale bridge-request closer (plan P4-A, Q21 A; relay/src/bridge/stale.ts). */
+  staleClose: {
+    enabled: boolean;
+    intervalSeconds: number;
+    afterSeconds: number;
+    maxPerDay: number;
+    /** The sponsor's DUST below which the closer pays for nothing (specks). */
+    minSponsorDustSpecks: bigint;
+    retrySeconds: number;
+  };
   sponsor: {
     enabled: boolean;
     /** The wallet SDK's fee margin in blocks: it declares fee × 1.046^margin. 5 fails the
@@ -224,6 +236,7 @@ export function loadConfig(env: Env, readFile: ReadFile): { config: RelayConfig;
     throw new ConfigError('RELAY_KEYS_FINGERPRINT must be 64 hex characters');
 
   const sponsorEnabled = bool(env.SPONSOR_ENABLED, false, 'SPONSOR_ENABLED');
+  const dustLowSpecks = big(env.SPONSOR_DUST_LOW_SPECKS, 10n * 10n ** 15n, 'SPONSOR_DUST_LOW_SPECKS');
   const fundingLockFile = str(env.SPONSOR_FUNDING_LOCK_FILE) ?? null;
   const dedicated = bool(env.SPONSOR_DEDICATED_WALLET, false, 'SPONSOR_DEDICATED_WALLET');
 
@@ -241,10 +254,19 @@ export function loadConfig(env: Env, readFile: ReadFile): { config: RelayConfig;
     proofServerVersion: str(env.PROOF_SERVER_EXPECTED_VERSION) ?? '9.0.0-rc.6',
     managedPath: str(env.MIDNIGHT_MANAGED_PATH) ?? null,
     keysFingerprint: fingerprint,
+    requireKeys: bool(env.RELAY_REQUIRE_KEYS, false, 'RELAY_REQUIRE_KEYS'),
+    staleClose: {
+      enabled: bool(env.STALE_CLOSE_ENABLED, true, 'STALE_CLOSE_ENABLED'),
+      intervalSeconds: int(env.STALE_CLOSE_INTERVAL_SECONDS, 300, 'STALE_CLOSE_INTERVAL_SECONDS', 30, 86_400),
+      afterSeconds: int(env.STALE_CLOSE_AFTER_SECONDS, 900, 'STALE_CLOSE_AFTER_SECONDS', 60, 7 * 86_400),
+      maxPerDay: int(env.STALE_CLOSE_MAX_PER_DAY, 24, 'STALE_CLOSE_MAX_PER_DAY', 0, 10_000),
+      minSponsorDustSpecks: big(env.STALE_CLOSE_MIN_DUST_SPECKS, 2n * dustLowSpecks, 'STALE_CLOSE_MIN_DUST_SPECKS'),
+      retrySeconds: int(env.STALE_CLOSE_RETRY_SECONDS, 1800, 'STALE_CLOSE_RETRY_SECONDS', 60, 7 * 86_400),
+    },
     sponsor: {
       enabled: sponsorEnabled,
       feeBlocksMargin: int(env.SPONSOR_FEE_BLOCKS_MARGIN, 20, 'SPONSOR_FEE_BLOCKS_MARGIN', 1, 1000),
-      dustLowSpecks: big(env.SPONSOR_DUST_LOW_SPECKS, 10n * 10n ** 15n, 'SPONSOR_DUST_LOW_SPECKS'),
+      dustLowSpecks,
       fundingLockFile,
       dedicated,
     },

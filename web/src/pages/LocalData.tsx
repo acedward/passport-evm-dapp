@@ -17,6 +17,7 @@ import {
   Sub,
   TypedConfirmDialog,
 } from '../design/index.js';
+import { storageText } from '../store/messages.js';
 import { useStore } from '../store/StoreContext.js';
 import { SCHEMA_VERSION, STORE_PREFIX } from '../store/schema.js';
 import { ImportError, type RecordView } from '../store/store.js';
@@ -133,10 +134,15 @@ export function LocalData({ network }: { network: string }) {
       />
 
       {status !== 'ok' && (
-        <Notice tone="danger" role="alert" className="panel-intro" data-testid="storage-blocked">
-          {status === 'full'
-            ? 'This browser has no room left for MN Bank data. Free some site data, then reload.'
-            : 'This browser is not letting MN Bank keep data (a private window, or site data is blocked). You cannot open or use an account here.'}
+        <Notice
+          tone="danger"
+          role="alert"
+          className="panel-intro"
+          data-testid="storage-blocked"
+          data-status={status}
+          title={storageText(status).title}
+        >
+          {storageText(status).text}
         </Notice>
       )}
       {store?.readOnly && (

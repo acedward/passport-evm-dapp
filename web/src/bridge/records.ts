@@ -53,6 +53,8 @@ export interface TransferRecord {
   applied?: boolean;
   /** A withdrawal's change (192 zero bytes in its inbox entry, Q13): re-filed with one more signature. */
   change?: { coin: CoinInfo; secured: boolean; secureTx?: string; deferredReason?: string };
+  /** When this page last asked whether the bank closed the request (a transfer to resume, P4-A). */
+  closedCheckAt?: number;
 }
 
 export const transferKey = (scope: WalletScope, account: string, id: string) =>

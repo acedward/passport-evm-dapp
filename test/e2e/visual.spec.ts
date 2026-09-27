@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 
 import { expect, test, type Page } from '@playwright/test';
 
+import { healthBody } from './errors-fixtures.js';
 import { connect, installCustomer, serveExchange } from './visual-fixtures.js';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -191,12 +192,56 @@ for (const vp of VIEWPORTS) {
       await shot(page, `${vp.name}-transfers`);
     });
 
-    test('Trade (its lane restyles it when it merges)', async ({ page }) => {
+    test('Trade before a wallet connects', async ({ page }) => {
       await serveExchange(page);
       await page.goto('/#trade');
       await expect(page.getByTestId('section-trade')).toBeVisible();
       await assertLayout(page, vp.touch);
+      await shot(page, `${vp.name}-trade-disconnected`);
+    });
+
+    // Plan P4-A: Trade on the design system — the order form, the book, a take being reviewed
+    // (with a line one coin cannot pay), the live-offer rule and My offers.
+    test('Trade: the order form, the book, a take under review and My offers', async ({ page }) => {
+      const ex = await serveExchange(page);
+      await installCustomer(page, { withAccount: true, withTrades: true });
+      await page.goto('/#trade');
+      await connect(page);
+      await expect(page.locator('[data-testid=trade-line]').first()).toBeVisible();
+      await expect(page.getByTestId('live-offer-banner')).toContainText('sell 2.00 wStkA at 1.10');
+      await expect(page.locator('[data-testid=my-trade]')).toHaveCount(2);
+      await expect(page.locator('[data-testid=not-takeable]').first()).toContainText('Not takeable:');
+      // The design components, not the old plain markup.
+      await expect(page.getByTestId('make-section')).toHaveClass(/panel/);
+      await expect(page.getByTestId('take-section')).toHaveClass(/panel/);
+      await expect(page.locator('[data-testid=trade-book-asks]')).toHaveClass(/book/);
+      await expect(page.getByTestId('side-sell')).toHaveAttribute('aria-checked', 'true');
+      await page.getByTestId('make-quantity').fill('10');
+      await page.getByTestId('make-price').fill('1.05');
+      await expect(page.getByTestId('legs-give')).toHaveText('10.00 wStkA');
+      await page.getByTestId('buy-best-ask').click();
+      await expect(page.getByTestId('take-confirm')).toBeVisible();
+      await assertLayout(page, vp.touch);
       await shot(page, `${vp.name}-trade`);
+      expect(ex.external).toEqual([]);
+    });
+
+    test('an error state: the bank low on fee funds, withdrawals paused (plan P4-A)', async ({ page }) => {
+      await serveExchange(page);
+      await installCustomer(page, { withAccount: true });
+      await page.route('**/health', (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(healthBody({ dustLow: true, vaultGasLow: true })),
+        }),
+      );
+      await page.goto('/#transfers');
+      await connect(page);
+      await expect(page.getByTestId('bank-sponsor-low')).toBeVisible();
+      await expect(page.getByTestId('bank-vault-gas-low')).toBeVisible();
+      await assertLayout(page, vp.touch);
+      await shot(page, `${vp.name}-transfers-paused`);
     });
   });
 }

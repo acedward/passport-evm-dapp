@@ -35,6 +35,7 @@ import {
 } from '@mnbank/core/passport';
 
 import type { RelayClient } from '../relay/client.js';
+import { jobErrorText } from '../relay/messages.js';
 import { recordKey, type WalletScope } from '../store/schema.js';
 import type { LocalStore } from '../store/store.js';
 import type { Eip1193Provider } from '../wallet/eip1193.js';
@@ -67,7 +68,34 @@ export interface OperationEnv {
 
 const lower = (s: string) => s.toLowerCase();
 
+/** The wallet is on another network (plan P4-A error states): nothing is signed or sent. */
+export class WrongNetworkError extends OperationError {
+  override name = 'WrongNetworkError';
+}
+
+/**
+ * Refuse before any signature or transaction when the wallet is not on the bank's chain (Sepolia):
+ * the typed data names the chain, so a wallet on another one would refuse or sign for the wrong
+ * network, and a transaction would go to the wrong chain.
+ */
+export async function ensureChain(env: Pick<OperationEnv, 'provider' | 'chainId'>): Promise<void> {
+  let current: unknown;
+  try {
+    current = await env.provider.request({ method: 'eth_chainId' });
+  } catch {
+    return; // a wallet that cannot say: let it decide (it checks the typed data's chain itself)
+  }
+  if (typeof current !== 'string') return;
+  const id = current.startsWith('0x') ? parseInt(current, 16) : Number(current);
+  if (Number.isFinite(id) && id !== env.chainId) {
+    throw new WrongNetworkError(
+      `Your wallet is on another network (chain ${id}). Switch it to Sepolia (chain ${env.chainId}) and try again; nothing was signed or sent.`,
+    );
+  }
+}
+
 export async function signTypedData(env: OperationEnv, typedData: unknown): Promise<string> {
+  await ensureChain(env);
   const sig = await env.provider.request({
     method: 'eth_signTypedData_v4',
     params: [
@@ -150,7 +178,7 @@ export async function openAccount(env: OperationEnv, vault: string): Promise<Acc
   const done = await relay.waitForJob(requestId, (j) => updateJob(env, null, j));
   dropJob(env, null, requestId);
   if (done.state !== 'succeeded' || !done.result) {
-    throw new OperationError(done.error?.message ?? 'The account could not be opened.');
+    throw new OperationError(jobErrorText(done.error, 'The account could not be opened.'));
   }
   const r = done.result as unknown as RegisterResult;
   const account = r.account.toLowerCase();
@@ -268,7 +296,8 @@ async function submitGated(
   env.onJob?.(job);
   const done = await env.relay.waitForJob(job.requestId, (j) => updateJob(env, account, j));
   dropJob(env, account, job.requestId);
-  if (done.state !== 'succeeded') throw new OperationError(done.error?.message ?? 'The bank could not complete this.');
+  if (done.state !== 'succeeded')
+    throw new OperationError(jobErrorText(done.error, 'The bank could not complete this.'));
   env.store.put(env.scope, 'roster', { useCounter: (counter + 1n).toString(10) }, { account });
   return done;
 }

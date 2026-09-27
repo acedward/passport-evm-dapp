@@ -23,7 +23,13 @@ export function passportCallAuthoriser(
       if (!r.ok) return r;
       if (!replay.claim(r.digestHex))
         return { ok: false, code: 'replayed', reason: 'this authorisation was already used' };
-      return { ok: true, signer: r.signer, kind: 'passport-call', account: r.account };
+      return {
+        ok: true,
+        signer: r.signer,
+        kind: 'passport-call',
+        account: r.account,
+        release: () => replay.release(r.digestHex),
+      };
     }
     if (!isGatedAction(def.action)) {
       return { ok: false, code: 'not-supported', reason: 'this action is not authorised by a Passport signature' };
@@ -34,6 +40,12 @@ export function passportCallAuthoriser(
     if (!r.ok) return r;
     if (!replay.claim(r.digestHex))
       return { ok: false, code: 'replayed', reason: 'this authorisation was already used' };
-    return { ok: true, signer: r.signer, kind: 'passport-call', account: r.account };
+    return {
+      ok: true,
+      signer: r.signer,
+      kind: 'passport-call',
+      account: r.account,
+      release: () => replay.release(r.digestHex),
+    };
   };
 }

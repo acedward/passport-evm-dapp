@@ -39,6 +39,7 @@ import {
   type OperationEnv,
 } from '../passport/operations.js';
 import { readCoins } from '../passport/records.js';
+import { jobErrorText } from '../relay/messages.js';
 import { liveOffer, putTrade, readTrades, tradeSummary, type TradeRecord } from './records.js';
 
 const lower = (s: string) => s.toLowerCase();
@@ -109,7 +110,7 @@ async function runJob(
   const done = await env.relay.waitForJob(job.requestId, (j) => updateJob(env, account, j));
   dropJob(env, account, job.requestId);
   if (done.state !== 'succeeded' || !done.result)
-    throw new OperationError(done.error?.message ?? 'The bank could not complete this.');
+    throw new OperationError(jobErrorText(done.error, 'The bank could not complete this.'));
   return done;
 }
 
