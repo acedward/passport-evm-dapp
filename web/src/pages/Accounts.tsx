@@ -31,6 +31,7 @@ import {
 import { findAccount, listJobs, readCoins, readSecret } from '../passport/records.js';
 import { RelayClient } from '../relay/client.js';
 import { useStore } from '../store/StoreContext.js';
+import { guardFor, markLiveOffersCancelled } from '../trade/operations.js';
 import { useWallet } from '../wallet/WalletContext.js';
 
 const short = (s: string, head = 8, tail = 6) =>
@@ -397,10 +398,20 @@ export function Accounts({ network, relayUrl }: { network: NetworkProfile; relay
       setMessage({ kind: 'ok', text: `Your account ${short(rec.address)} is open.` });
     });
 
+  /** L-TRD.3 (Q9): a signed action cancels the account's live offer; say so and ask first. */
+  const confirmCancelsOffer = (action: 'withdraw' | 'append-inbox'): boolean => {
+    const e = env();
+    if (!e || !account) return false;
+    const g = guardFor(e, account.address, action);
+    return g.kind === 'ok' || (g.kind === 'warn' && window.confirm(g.message));
+  };
+
   const send = (color: string, amount: bigint, recipient: string) =>
     run('withdraw', async (e) => {
       if (!account) return;
+      if (!confirmCancelsOffer('withdraw')) return;
       const r = await withdrawToWallet(e, account.address, { color, amount, recipient });
+      markLiveOffersCancelled(e, account.address);
       setMessage({ kind: 'ok', text: `Sent (tx ${short(r.txId)}). Recording the change in your inbox…` });
       await syncAccount(e, account.address);
       // Q13 default A: file the change's inbox entry right away (a second signature).
@@ -414,7 +425,9 @@ export function Accounts({ network, relayUrl }: { network: NetworkProfile; relay
   const secure = (coin: StoredCoin) =>
     run('append-inbox', async (e) => {
       if (!account) return;
+      if (!confirmCancelsOffer('append-inbox')) return;
       await secureChange(e, account.address, coin);
+      markLiveOffersCancelled(e, account.address);
       await syncAccount(e, account.address);
       setMessage({ kind: 'ok', text: 'The coin is recorded in your inbox.' });
     });

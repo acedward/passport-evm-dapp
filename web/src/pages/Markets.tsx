@@ -1,7 +1,7 @@
 // The Markets section (spec US3, FR-007/FR-008): each stock against USDC, priced only from the
-// live offers on the exchange, and a per-stock order book. Taking an offer arrives with the
-// Trade lane (L-TRD); its buttons are placeholders here. Neutral styling until the MN Bank
-// design is approved (Q16); the wording follows the mockup.
+// live offers on the exchange, and a per-stock order book. Each book line's Take opens the Trade
+// section on that offer (plan L-TRD), which shows the exact legs and whether one coin can pay.
+// Neutral styling until the MN Bank design is approved (Q16); the wording follows the mockup.
 
 import { useState } from 'react';
 
@@ -49,7 +49,8 @@ function Book({ market, onClose }: { market: Market; onClose(): void }) {
   const spread = spreadText(market);
   const asks = bookLines(market, 'asks');
   const bids = bookLines(market, 'bids');
-  const takeHint = 'Taking offers arrives with the Trade section';
+  const takeHref = (offerId: string) =>
+    `#trade?${new URLSearchParams({ stock: market.stock.midnightName, offer: offerId }).toString()}`;
   return (
     <section className="book" data-testid="book" data-stock={stock} aria-labelledby="book-title">
       <div className="book-head">
@@ -107,9 +108,9 @@ function Book({ market, onClose }: { market: Market; onClose(): void }) {
                       {l.total}
                     </td>
                     <td>
-                      <button type="button" disabled title={takeHint} data-testid="take">
+                      <a href={takeHref(l.offerId)} className="button" data-testid="take">
                         Take
-                      </button>
+                      </a>
                     </td>
                   </tr>
                 ))
@@ -151,9 +152,9 @@ function Book({ market, onClose }: { market: Market; onClose(): void }) {
                       {l.total}
                     </td>
                     <td>
-                      <button type="button" disabled title={takeHint} data-testid="take">
+                      <a href={takeHref(l.offerId)} className="button" data-testid="take">
                         Take
-                      </button>
+                      </a>
                     </td>
                   </tr>
                 ))

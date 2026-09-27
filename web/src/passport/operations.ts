@@ -67,7 +67,7 @@ export interface OperationEnv {
 
 const lower = (s: string) => s.toLowerCase();
 
-async function signTypedData(env: OperationEnv, typedData: unknown): Promise<string> {
+export async function signTypedData(env: OperationEnv, typedData: unknown): Promise<string> {
   const sig = await env.provider.request({
     method: 'eth_signTypedData_v4',
     params: [
@@ -80,7 +80,7 @@ async function signTypedData(env: OperationEnv, typedData: unknown): Promise<str
   return sig;
 }
 
-function putJob(
+export function putJob(
   env: OperationEnv,
   account: string | null,
   job: JobView,
@@ -98,7 +98,7 @@ function putJob(
   env.store.put(env.scope, 'job', rec, { account, id: job.requestId });
 }
 
-function updateJob(env: OperationEnv, account: string | null, job: JobView) {
+export function updateJob(env: OperationEnv, account: string | null, job: JobView) {
   const key = recordKey(env.scope, 'job', { account, id: job.requestId });
   const prev = env.store.get<JobRecord>(key)?.data;
   if (prev)
@@ -106,7 +106,7 @@ function updateJob(env: OperationEnv, account: string | null, job: JobView) {
   env.onJob?.(job);
 }
 
-const dropJob = (env: OperationEnv, account: string | null, requestId: string) =>
+export const dropJob = (env: OperationEnv, account: string | null, requestId: string) =>
   env.store.remove(recordKey(env.scope, 'job', { account, id: requestId }));
 
 // ── Open an account (L-ACC.1) ─────────────────────────────────────────────────────
@@ -239,7 +239,7 @@ export async function syncAccount(env: OperationEnv, account: string): Promise<S
 
 // ── The two gated calls of this lane (L-ACC.3, L-ACC.4, L-ACC.5) ─────────────────────
 
-async function gatedContext(env: OperationEnv, account: string) {
+export async function gatedContext(env: OperationEnv, account: string) {
   const state = await env.relay.accountState(account);
   if (!state || !state.booted) throw new OperationError('The account is not active.');
   const hint = BigInt(readRoster(env.store, env.scope, account)?.useCounter ?? '0');
