@@ -1,4 +1,4 @@
-/* Minimal neutral styling until the MN Bank design system (P1.5). */
+/* Minimal, neutral styling until the MN Bank design (P1.5, after the owner approves the mockup). */
 :root {
   font-family:
     system-ui,
@@ -12,8 +12,130 @@
 body {
   margin: 0;
 }
+.masthead,
+nav,
 main {
-  max-width: 960px;
+  max-width: 1080px;
   margin: 0 auto;
+  padding: 12px 16px;
+  box-sizing: border-box;
+}
+.masthead {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid #ccc;
+}
+.masthead h1 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+.network {
+  font-size: 0.85rem;
+  color: #555;
+}
+nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  border-bottom: 1px solid #eee;
+}
+nav a[aria-current='page'] {
+  font-weight: 600;
+  text-decoration: underline;
+}
+.wallet {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 2;
+  background: #fff;
+  border: 1px solid #ccc;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 220px;
+}
+.badge {
+  border: 1px solid #999;
+  border-radius: 4px;
+  padding: 0 6px;
+  font-size: 0.85rem;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+button {
+  font: inherit;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+button.link {
+  border: none;
+  background: none;
+  text-decoration: underline;
+  padding: 0 4px;
+}
+button.danger {
+  color: #8a1c1c;
+}
+.notice {
+  padding: 8px 12px;
+  border: 1px solid #999;
+}
+.notice.error {
+  border-color: #8a1c1c;
+  color: #8a1c1c;
+}
+.hint {
+  color: #555;
+}
+.table-wrap {
+  overflow-x: auto;
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.9rem;
+}
+th,
+td {
+  text-align: left;
+  border-bottom: 1px solid #ddd;
+  padding: 4px 6px;
+  vertical-align: top;
+}
+td.value code {
+  word-break: break-all;
+}
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 30%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: 16px;
+}
+.dialog {
+  background: #fff;
+  max-width: 480px;
+  width: 100%;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
