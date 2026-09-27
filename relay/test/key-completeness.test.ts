@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { accountCircuitIds } from '../src/passport/account-shape.js';
+import { BRIDGE_CIRCUITS, SWAP_CIRCUIT, accountCircuitIds } from '../src/passport/account-shape.js';
 import { deployedVerifierKeys } from '../src/prover/deployed.js';
 import { checkKeyVolume, keyVolumeComplete, keyVolumeProblems, scanKeyTree } from '../src/prover/keys.js';
 import {
@@ -63,6 +63,9 @@ describe('the list of circuits the relay proves', () => {
     }
     for (const c of VAULT_PROVEN_CIRCUITS) expect(vault.has(c), `Erc20Vault/${c}`).toBe(true);
     for (const c of SIGNET_PROVEN_CIRCUITS) expect(signet.has(c), `SignetSigner/${c}`).toBe(true);
+    // The bridge and offer circuits are exactly the account shape's (the list spells them out, so
+    // the relay can read it without loading the Passport client).
+    for (const c of [...BRIDGE_CIRCUITS, SWAP_CIRCUIT]) expect(ACCOUNT_PROVEN_CIRCUITS).toContain(c);
     expect(RELAY_PROVEN_CIRCUITS).toHaveLength(
       ACCOUNT_PROVEN_CIRCUITS.length + VAULT_PROVEN_CIRCUITS.length + SIGNET_PROVEN_CIRCUITS.length,
     );

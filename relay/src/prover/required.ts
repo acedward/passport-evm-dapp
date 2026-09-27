@@ -18,14 +18,19 @@
 // relay/test/key-completeness.test.ts checks that every circuit name the relay's sources call is listed
 // here, and that every account circuit here is in the MN Bank account shape.
 
-import { BRIDGE_CIRCUITS, SWAP_CIRCUIT } from '../passport/account-shape.js';
-
+// Plain names, no import of ../passport/account-shape.ts: that module loads the Passport client,
+// which needs the compiled contracts, and this list is read at start-up before (and without) any
+// key volume. The test checks these names against account-shape's lists.
 export const ACCOUNT_PROVEN_CIRCUITS = [
   'activate_initial_device_with_evm',
   'withdraw_shielded_with_evm',
   'append_inbox_with_evm',
-  ...BRIDGE_CIRCUITS,
-  SWAP_CIRCUIT,
+  'bridge_deposit_start_with_evm',
+  'bridge_withdraw_start_with_evm',
+  'bridge_deposit_complete',
+  'bridge_withdraw_complete',
+  'bridge_withdraw_refund',
+  'open_swap_shielded_with_evm',
 ] as const;
 
 export const VAULT_PROVEN_CIRCUITS = [
