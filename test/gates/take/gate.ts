@@ -585,7 +585,7 @@ async function preflight(): Promise<void> {
   const kernelConfig = KERNEL_ON ? await getJson(`${KERNEL}/v1/midnight/config`) : skipped;
   const batcherHealth = KERNEL_ON ? await getJson(`${BATCHER}/health`) : skipped;
   // The codec against the kernel's own library (present in this image, not a repo dependency).
-  let codec: Record<string, unknown> = { checked: false };
+  let codec: Record<string, unknown>;
   try {
     // Typed `string` so the compiler does not resolve it: the package is not a repo dependency.
     const spec: string = '@effectstream/mip-zswap-offer/mip5';
@@ -825,7 +825,7 @@ async function makeOffer(label: string, kind: string, makerRole: Role = 'maker')
   if (state.offers[label]) throw new Error(`offer ${label} exists`);
   const t0 = Date.now();
   let bytes: Uint8Array;
-  let extra: Record<string, unknown> = {};
+  let extra: Record<string, unknown>;
   let maker: OfferRecord['maker'];
   let partition: OfferRecord['partition'];
   if (kind === 'wallet') {
