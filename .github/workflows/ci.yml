@@ -110,6 +110,45 @@ jobs:
           docker logs relay-ci | tail -5
           docker rm -f relay-ci
 
+  deploy-bundle:
+    name: Deploy bundle (compose, web and key-volume images)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+          persist-credentials: false
+      - name: The compose file is valid with the example settings
+        run: |
+          cp deploy/.env.example "$RUNNER_TEMP/bundle.env"
+          touch "$RUNNER_TEMP/seed" "$RUNNER_TEMP/rpc"
+          sed -i -e "s#^SPONSOR_SEED_HOST_FILE=.*#SPONSOR_SEED_HOST_FILE=$RUNNER_TEMP/seed#" \
+            -e "s#^SEPOLIA_RPC_URL_HOST_FILE=.*#SEPOLIA_RPC_URL_HOST_FILE=$RUNNER_TEMP/rpc#" \
+            -e "s#^RELAY_ENV_FILE=.*#RELAY_ENV_FILE=$RUNNER_TEMP/bundle.env#" "$RUNNER_TEMP/bundle.env"
+          docker compose -f deploy/compose.yml --env-file "$RUNNER_TEMP/bundle.env" config --quiet
+          docker compose -f deploy/compose.yml --env-file "$RUNNER_TEMP/bundle.env" config --services
+      - name: Build the web and key-volume images
+        run: |
+          docker build -f deploy/web.Dockerfile -t mnbank/web:ci .
+          docker build -f deploy/key-volume.Dockerfile -t mnbank/key-volume:ci .
+      - name: The web image serves the site and its runtime configuration
+        run: |
+          docker run -d --name web-ci --read-only --tmpfs /tmp -e WEB_NETWORK=stagenet -p 127.0.0.1:18081:8080 mnbank/web:ci
+          for i in $(seq 1 50); do curl -sf http://127.0.0.1:18081/healthz >/dev/null && break; sleep 0.2; done
+          curl -sf http://127.0.0.1:18081/ | grep -q '<title>MN Bank</title>'
+          test "$(curl -sf http://127.0.0.1:18081/config.json)" = '{"network":"stagenet","relayUrl":"/relay"}'
+          curl -sI http://127.0.0.1:18081/ | grep -qi '^x-content-type-options: nosniff'
+          docker logs web-ci 2>&1 | tail -3
+          docker rm -f web-ci
+      - name: The key-volume image holds no keys, and its tools run
+        run: |
+          found="$(docker run --rm --entrypoint sh mnbank/key-volume:ci -c 'find / -xdev \( -name "*.prover" -o -name "*.verifier" \) -print 2>/dev/null' || true)"
+          if [ -n "$found" ]; then echo "keys found in the image:"; echo "$found"; exit 1; fi
+          docker run --rm --entrypoint /opt/compactc/compactc mnbank/key-volume:ci --version | grep -qx 0.34.0
+          docker run --rm --entrypoint bun mnbank/key-volume:ci relay/src/tools/key-volume.ts marker-inputs /tmp
+          docker image inspect mnbank/web:ci mnbank/key-volume:ci --format '{{.RepoTags}} {{.Size}} bytes'
+
   secret-scan:
     name: Secret scan (full history)
     runs-on: ubuntu-24.04
