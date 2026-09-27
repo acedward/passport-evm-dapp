@@ -3,9 +3,11 @@
 // or, when this browser does not hold it, the way back through Import. Balances come from the
 // coins this browser keeps, rebuilt from chain data by an inbox walk decrypted here.
 //
-// Plain layout for now: the MN Bank design (P1.5) restyles it once the mockup is approved.
+// Laid out as a bank statement (plan P1.5, the approved mockup): summary figures, one ruled
+// table per side with a double-ruled subtotal, and a side column with the pending items, the
+// job tracker and the "Open your Passport account" card.
 
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 
 import {
   formatUnits,
@@ -14,11 +16,43 @@ import {
   type JobView,
   type NetworkProfile,
   type StoredCoin,
+  type TokenEntry,
   type TokenRegistry,
+  type Valuation,
 } from '@mnbank/core';
 
+import {
+  AssetCell,
+  Button,
+  Card,
+  Cell,
+  EmptyState,
+  Field,
+  Figure,
+  Figures,
+  Hash,
+  Money,
+  NoValue,
+  Notice,
+  PageHead,
+  Panel,
+  PendingItem,
+  Select,
+  StageTracker,
+  StatementTable,
+  StatusPill,
+  Sub,
+  SubtotalRow,
+  TextInput,
+  UnitInput,
+  shortHex,
+  tokenDisplayName,
+  type Column,
+  type TrackerStage,
+} from '../design/index.js';
 import { readSepoliaHoldings, walletRpc, type SepoliaHoldings } from '../evm/balances.js';
 import { useMarkets, useTokenRegistry } from '../market/MarketContext.js';
+import { bidText } from '../market/view.js';
 import {
   openAccount,
   recipientOf,
@@ -53,40 +87,110 @@ const STAGE_TEXT: Record<string, string> = {
   failed: 'Failed',
 };
 
-function JobTracker({ job }: { job: JobView }) {
+const JOB_TITLE: Record<string, string> = {
+  register: 'Opening your account',
+  withdraw: 'Sending from your account',
+  'append-inbox': 'Recording the change in your inbox',
+};
+
+/** "14:06" UTC from the relay's Unix seconds. */
+const clock = (unixSeconds: number) => new Date(unixSeconds * 1000).toISOString().slice(11, 16);
+
+const HOLDING_COLUMNS: Column[] = [
+  { label: 'Asset' },
+  { label: 'Quantity', align: 'right' },
+  { label: 'Price', sub: 'USDC, best bid', align: 'right' },
+  { label: 'Value', sub: 'USDC', align: 'right' },
+];
+
+/** Whether a valuation counts towards the USDC totals (stocks at the best bid, USDC at face). */
+const counts = (v: Valuation): v is Extract<Valuation, { usdcRaw: bigint }> => v.kind === 'usdc' || v.kind === 'priced';
+
+function PriceCell({ v }: { v: Valuation | null }) {
+  let body: ReactNode;
+  if (v === null) body = <NoValue>not priced</NoValue>;
+  else if (v.kind === 'priced') body = <span className="num">{bidText(v.price)}</span>;
+  else if (v.kind === 'usdc')
+    body = (
+      <span className="num-wrap num">
+        1.00<Sub>face value</Sub>
+      </span>
+    );
+  else if (v.kind === 'no-liquidity') body = <NoValue>no liquidity</NoValue>;
+  else if (v.kind === 'unavailable') body = <NoValue>price not available</NoValue>;
+  else body = <NoValue>not priced</NoValue>;
   return (
-    <div className="tracker" data-testid="job-tracker" data-state={job.state} data-stage={job.stage}>
-      <p>
+    <Cell label="Price" align="right">
+      {body}
+    </Cell>
+  );
+}
+
+function JobTracker({ job }: { job: JobView }) {
+  const last = job.stages.length - 1;
+  const stages: TrackerStage[] = job.stages.map((s, i) => ({
+    key: `${s.stage}-${i}`,
+    title: STAGE_TEXT[s.stage] ?? s.stage,
+    state: i < last || job.state === 'succeeded' ? 'done' : job.state === 'failed' ? 'failed' : 'current',
+    time: <span title={new Date(s.at * 1000).toISOString()}>{clock(s.at)}</span>,
+    detail: s.detail?.tx ? (
+      <>
+        tx <Hash value={s.detail.tx} head={8} tail={6} />
+      </>
+    ) : undefined,
+    data: { testid: 'job-stage', stage: s.stage },
+  }));
+  return (
+    <Panel
+      title={JOB_TITLE[job.action] ?? 'Bank job'}
+      data-testid="job-tracker"
+      data-state={job.state}
+      data-stage={job.stage}
+      meta={
+        <StatusPill
+          status={
+            job.state === 'succeeded'
+              ? 'done'
+              : job.state === 'failed'
+                ? 'failed'
+                : job.state === 'queued'
+                  ? 'idle'
+                  : 'progress'
+          }
+        >
+          {job.state === 'succeeded'
+            ? 'Done'
+            : job.state === 'failed'
+              ? 'Failed'
+              : job.state === 'queued'
+                ? 'Queued'
+                : 'In progress'}
+        </StatusPill>
+      }
+    >
+      <p className="tracker-summary">
         <strong>{STAGE_TEXT[job.stage] ?? job.stage}</strong>
         {job.state === 'queued' && job.position !== undefined && (
           <span data-testid="queue-position"> — position {job.position} in the queue</span>
         )}
+        <br />
+        <span className="muted">Safe to leave this page open; the bank does the work.</span>
       </p>
-      <ol>
-        {job.stages.map((s, i) => (
-          <li key={`${s.stage}-${i}`} data-testid="job-stage" data-stage={s.stage}>
-            {STAGE_TEXT[s.stage] ?? s.stage}
-            {s.detail?.tx && (
-              <span className="mono" title={s.detail.tx}>
-                {' '}
-                tx {short(s.detail.tx)}
-              </span>
-            )}
-          </li>
-        ))}
-      </ol>
+      <StageTracker stages={stages} label="Progress" />
       {job.error && (
-        <p role="alert" className="notice error" data-testid="job-error">
+        <Notice tone="danger" role="alert" data-testid="job-error">
           {job.error.message}
-        </p>
+        </Notice>
       )}
-    </div>
+    </Panel>
   );
 }
 
-function SepoliaSection({ tokens }: { tokens: TokenRegistry | null }) {
+/** The connected wallet's Sepolia balances, read through its own provider. */
+function useSepoliaHoldings(tokens: TokenRegistry | null) {
   const wallet = useWallet();
-  const [holdings, setHoldings] = useState<SepoliaHoldings | null>(null);
+  // Keyed by address: another wallet's numbers are never shown, even for a moment.
+  const [read, setRead] = useState<{ address: string; holdings: SepoliaHoldings } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const provider = wallet.provider;
   const address = wallet.address;
@@ -95,7 +199,8 @@ function SepoliaSection({ tokens }: { tokens: TokenRegistry | null }) {
     if (!provider || !address) return;
     setError(null);
     try {
-      setHoldings(await readSepoliaHoldings(walletRpc(provider), address, tokens?.tokens ?? [], 'wallet'));
+      const holdings = await readSepoliaHoldings(walletRpc(provider), address, tokens?.tokens ?? [], 'wallet');
+      setRead({ address, holdings });
     } catch {
       setError('Your wallet could not read Sepolia balances right now.');
     }
@@ -107,122 +212,281 @@ function SepoliaSection({ tokens }: { tokens: TokenRegistry | null }) {
     return () => clearTimeout(t);
   }, [refresh, wallet.onRightChain]);
 
+  return { holdings: read && read.address === address ? read.holdings : null, error, refresh };
+}
+
+interface Valued {
+  token: TokenEntry;
+  balance: bigint | null | undefined;
+  v: Valuation | null;
+}
+
+type ValueFn = (colour: string, amountRaw: bigint) => Valuation;
+
+/** Sepolia rows valued with the same hook as the Passport holdings (a stkA is priced at the
+ *  best bid for wStkA, the token it bridges to); the subtotal leaves out what has no price. */
+function sepoliaValuation(tokens: TokenRegistry | null, holdings: SepoliaHoldings | null, value: ValueFn) {
+  const rows: Valued[] = (tokens?.tokens ?? [])
+    .filter((t) => t.sepoliaAddress !== '')
+    .map((t) => {
+      const balance = holdings?.tokens.find((x) => x.token.symbol === t.symbol)?.balance;
+      return {
+        token: t,
+        balance,
+        v: balance === undefined || balance === null ? null : value(t.midnightColour, balance),
+      };
+    });
+  const subtotal = holdings ? rows.reduce((n, r) => (r.v !== null && counts(r.v) ? n + r.v.usdcRaw : n), 0n) : null;
+  const excluded = rows.filter((r) => r.v !== null && !counts(r.v)).map((r) => r.token.symbol);
+  return { rows, subtotal, excluded };
+}
+
+function passportValuation(coins: StoredCoin[], tokens: TokenRegistry | null, value: ValueFn) {
+  const valued = holdingsByColour(coins).map((h) => ({
+    name: tokens?.byColour(h.color)?.midnightName ?? short(h.color),
+    v: value(h.color, h.total),
+  }));
+  return {
+    subtotal: valued.reduce((n, r) => (counts(r.v) ? n + r.v.usdcRaw : n), 0n),
+    excluded: valued.filter((r) => !counts(r.v)).map((r) => r.name),
+  };
+}
+
+/** The statement's top strip. Mounted only while a wallet is connected, so a page without a
+ *  wallet starts no price feed. */
+function SummaryFigures({
+  tokens,
+  holdings,
+  coins,
+  hasAccount,
+}: {
+  tokens: TokenRegistry | null;
+  holdings: SepoliaHoldings | null;
+  coins: StoredCoin[];
+  hasAccount: boolean;
+}) {
+  const { value } = useMarkets();
+  const sep = sepoliaValuation(tokens, holdings, value);
+  const pass = passportValuation(coins, tokens, value);
+  const usdcDec = tokens?.usdc()?.decimals ?? 6;
+  const excluded = [...sep.excluded, ...(hasAccount ? pass.excluded : [])];
   return (
-    <section aria-labelledby="sepolia-title" data-testid="sepolia-holdings">
-      <h3 id="sepolia-title">Sepolia holdings</h3>
+    <Figures aria-label="Summary">
+      <Figure
+        main
+        label="Total value, priced holdings"
+        value={
+          sep.subtotal === null && !hasAccount ? (
+            '—'
+          ) : (
+            <Money raw={(sep.subtotal ?? 0n) + (hasAccount ? pass.subtotal : 0n)} decimals={usdcDec} unit="USDC" />
+          )
+        }
+        note={
+          <>
+            Stocks are valued at the best bid in the live book. Not included: ETH (not priced)
+            {excluded.length > 0 ? `, and ${excluded.join(', ')} (no price)` : ''}.
+          </>
+        }
+      />
+      <Figure
+        label="Ethereum (Sepolia)"
+        value={sep.subtotal === null ? '—' : <Money raw={sep.subtotal} decimals={usdcDec} />}
+      />
+      <Figure
+        label="Passport account"
+        value={hasAccount ? <Money raw={pass.subtotal} decimals={usdcDec} /> : <NoValue>no account</NoValue>}
+      />
+    </Figures>
+  );
+}
+
+function SepoliaSection({
+  tokens,
+  address,
+  holdings,
+  error,
+  onRefresh,
+}: {
+  tokens: TokenRegistry | null;
+  address: string;
+  holdings: SepoliaHoldings | null;
+  error: string | null;
+  onRefresh(): void;
+}) {
+  const { value } = useMarkets();
+  const { rows, subtotal, excluded: leftOut } = sepoliaValuation(tokens, holdings, value);
+  const usdcDec = tokens?.usdc()?.decimals ?? 6;
+  return (
+    <Panel
+      title="Ethereum (Sepolia)"
+      data-testid="sepolia-holdings"
+      meta={
+        <>
+          <span>
+            Wallet <span className="mono">{shortHex(address)}</span>
+          </span>
+          <Button variant="secondary" size="small" data-testid="sepolia-refresh" onClick={onRefresh}>
+            Refresh
+          </Button>
+        </>
+      }
+    >
       {error && (
-        <p role="alert" className="notice error">
+        <Notice tone="danger" role="alert" className="panel-intro">
           {error}
-        </p>
+        </Notice>
       )}
-      <table>
-        <thead>
-          <tr>
-            <th>Token</th>
-            <th>Contract</th>
-            <th className="num">Balance</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr data-testid="sepolia-row" data-symbol="ETH">
-            <td>ETH</td>
-            <td>Sepolia ether</td>
-            <td className="num" data-testid="sepolia-balance">
-              {holdings ? formatUnits(holdings.eth, 18, { maxFractionDigits: 6 }) : '—'}
-            </td>
-          </tr>
-          {(tokens?.tokens ?? [])
-            .filter((t) => t.sepoliaAddress !== '')
-            .map((t) => {
-              const b = holdings?.tokens.find((x) => x.token.symbol === t.symbol)?.balance;
-              return (
-                <tr key={t.symbol} data-testid="sepolia-row" data-symbol={t.symbol}>
-                  <td>{t.symbol}</td>
-                  <td className="mono" title={t.sepoliaAddress}>
+      <StatementTable
+        columns={HOLDING_COLUMNS}
+        caption="Sepolia holdings"
+        foot={
+          <SubtotalRow
+            span={3}
+            label="Subtotal, priced holdings"
+            note={
+              leftOut.length > 0
+                ? `Excludes ${leftOut.join(', ')} (no price) and ETH (not priced).`
+                : 'Excludes ETH (not priced).'
+            }
+            valueLabel="USDC"
+            valueTestId="sepolia-total"
+          >
+            {subtotal === null ? '—' : <Money raw={subtotal} decimals={usdcDec} />}
+          </SubtotalRow>
+        }
+      >
+        <tr data-testid="sepolia-row" data-symbol="ETH">
+          <AssetCell symbol="ETH" name="Sepolia ether" origin="Used for gas" />
+          <Cell label="Quantity" align="right" num data-testid="sepolia-balance">
+            {holdings ? formatUnits(holdings.eth, 18, { maxFractionDigits: 6 }) : '—'}
+          </Cell>
+          <Cell label="Price" align="right">
+            <NoValue>not priced</NoValue>
+          </Cell>
+          <Cell label="Value" align="right">
+            <NoValue>not valued</NoValue>
+          </Cell>
+        </tr>
+        {rows.map(({ token: t, balance: b, v }) => (
+          <tr key={t.symbol} data-testid="sepolia-row" data-symbol={t.symbol}>
+            <AssetCell
+              symbol={t.symbol}
+              name={tokenDisplayName(t)}
+              origin={
+                <>
+                  ERC-20{' '}
+                  <span className="mono" title={t.sepoliaAddress}>
                     {short(t.sepoliaAddress, 6, 4)}
-                  </td>
-                  <td className="num" data-testid="sepolia-balance">
-                    {b === undefined || b === null ? '—' : formatUnits(b, t.decimals, { minFractionDigits: 2 })}
-                  </td>
-                </tr>
-              );
-            })}
-        </tbody>
-      </table>
-      <button type="button" data-testid="sepolia-refresh" onClick={() => void refresh()}>
-        Refresh
-      </button>
-    </section>
+                  </span>
+                </>
+              }
+            />
+            <Cell label="Quantity" align="right" num data-testid="sepolia-balance">
+              {b === undefined || b === null
+                ? '—'
+                : formatUnits(b, t.decimals, { minFractionDigits: 2, grouping: true })}
+            </Cell>
+            <PriceCell v={v} />
+            <Cell label="Value" align="right">
+              {v !== null && counts(v) ? <Money raw={v.usdcRaw} decimals={usdcDec} /> : <NoValue>not valued</NoValue>}
+            </Cell>
+          </tr>
+        ))}
+      </StatementTable>
+      <p className="table-note">
+        Stocks are valued at the best bid of the live book; a stock with no bid is shown but not valued. ETH is kept for
+        gas and is not priced.
+      </p>
+    </Panel>
   );
 }
 
 function PassportHoldings({ coins, tokens }: { coins: StoredCoin[]; tokens: TokenRegistry | null }) {
   // Stocks are valued at the best live bid of the offer book (plan L-MKT); USDC at face value.
   const { value } = useMarkets();
-  const rows = holdingsByColour(coins).map((h) => ({
-    h,
-    token: tokens?.byColour(h.color),
-    v: value(h.color, h.total),
-  }));
+  // Listed in the bank's token order (wStkA, wStkB, wStkC, wUSDC); unknown colours last.
+  const order = (colour: string) => {
+    const i = tokens?.tokens.findIndex((t) => t.midnightColour === colour) ?? -1;
+    return i < 0 ? Number.MAX_SAFE_INTEGER : i;
+  };
+  const rows = holdingsByColour(coins)
+    .map((h) => ({
+      h,
+      token: tokens?.byColour(h.color),
+      v: value(h.color, h.total),
+    }))
+    .sort((a, b) => order(a.h.color) - order(b.h.color));
   const totalUsdc = rows.reduce((n, r) => (r.v.kind === 'usdc' || r.v.kind === 'priced' ? n + r.v.usdcRaw : n), 0n);
   const leftOut = rows.filter((r) => r.v.kind !== 'usdc' && r.v.kind !== 'priced').length;
   const usdc = tokens?.usdc();
+  if (rows.length === 0) {
+    return (
+      <EmptyState data-testid="passport-empty" title="No tokens in this account yet">
+        Deposit stocks or USDC from Sepolia on Transfers; they appear here once they land.
+      </EmptyState>
+    );
+  }
   return (
-    <table data-testid="passport-holdings">
-      <thead>
-        <tr>
-          <th>Token</th>
-          <th className="num">Amount</th>
-          <th className="num">Largest single payment</th>
-          <th className="num">Value (USDC)</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.length === 0 && (
-          <tr>
-            <td colSpan={4} data-testid="passport-empty">
-              No tokens in this account yet.
-            </td>
+    <StatementTable
+      columns={HOLDING_COLUMNS}
+      caption="Passport account holdings"
+      data-testid="passport-holdings"
+      foot={
+        <SubtotalRow
+          span={3}
+          label="Subtotal, priced holdings"
+          note={leftOut > 0 ? `Leaves out ${leftOut} token${leftOut > 1 ? 's' : ''} with no price.` : undefined}
+          valueLabel="USDC"
+          valueTestId="passport-total"
+        >
+          {formatUnits(totalUsdc, usdc?.decimals ?? 6, { minFractionDigits: 2, grouping: true })}
+        </SubtotalRow>
+      }
+    >
+      {rows.map(({ h, token: t, v }) => {
+        const dec = t?.decimals ?? 0;
+        return (
+          <tr key={h.color} data-testid="passport-row" data-colour={h.color} data-name={t?.midnightName ?? ''}>
+            <AssetCell
+              symbol={t?.midnightName ?? short(h.color)}
+              name={t ? tokenDisplayName(t) : undefined}
+              origin={
+                t?.sepoliaAddress ? (
+                  <>
+                    bridged from Sepolia{' '}
+                    <span className="mono" title={t.sepoliaAddress}>
+                      {short(t.sepoliaAddress, 6, 4)}
+                    </span>
+                  </>
+                ) : undefined
+              }
+            />
+            <Cell label="Quantity" align="right">
+              <span className="num-wrap">
+                <span className="num" data-testid="passport-amount" data-raw={h.total.toString()}>
+                  {formatUnits(h.total, dec, { minFractionDigits: 2, grouping: true })}
+                </span>
+                <Sub>
+                  largest single payment{' '}
+                  <span data-testid="passport-largest" data-raw={h.largest.toString()}>
+                    {formatUnits(h.largest, dec, { minFractionDigits: 2, grouping: true })}
+                  </span>
+                </Sub>
+              </span>
+            </Cell>
+            <PriceCell v={v} />
+            <Cell label="Value" align="right" num data-testid="passport-value">
+              {v.kind === 'usdc' || v.kind === 'priced' ? (
+                formatUnits(v.usdcRaw, usdc?.decimals ?? 6, { minFractionDigits: 2, grouping: true })
+              ) : (
+                <NoValue>not valued</NoValue>
+              )}
+            </Cell>
           </tr>
-        )}
-        {rows.map(({ h, token: t, v }) => {
-          const dec = t?.decimals ?? 0;
-          return (
-            <tr key={h.color} data-testid="passport-row" data-colour={h.color} data-name={t?.midnightName ?? ''}>
-              <td>
-                {t?.midnightName ?? short(h.color)}
-                {t?.sepoliaAddress ? <small> bridged from Sepolia {short(t.sepoliaAddress, 6, 4)}</small> : null}
-              </td>
-              <td className="num" data-testid="passport-amount" data-raw={h.total.toString()}>
-                {formatUnits(h.total, dec, { minFractionDigits: 2 })}
-              </td>
-              <td className="num" data-testid="passport-largest" data-raw={h.largest.toString()}>
-                {formatUnits(h.largest, dec, { minFractionDigits: 2 })}
-              </td>
-              <td className="num" data-testid="passport-value">
-                {v.kind === 'usdc' || v.kind === 'priced'
-                  ? formatUnits(v.usdcRaw, usdc?.decimals ?? 6, { minFractionDigits: 2 })
-                  : v.kind === 'no-liquidity'
-                    ? 'no liquidity'
-                    : 'price not available'}
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-      {rows.length > 0 && (
-        <tfoot>
-          <tr>
-            <td colSpan={3}>
-              Total in USDC{leftOut > 0 ? ` (leaves out ${leftOut} token${leftOut > 1 ? 's' : ''} with no price)` : ''}
-            </td>
-            <td className="num" data-testid="passport-total">
-              {formatUnits(totalUsdc, usdc?.decimals ?? 6, { minFractionDigits: 2 })}
-            </td>
-          </tr>
-        </tfoot>
-      )}
-    </table>
+        );
+      })}
+    </StatementTable>
   );
 }
 
@@ -266,45 +530,65 @@ function SendForm({
   };
   if (held.length === 0) return null;
   return (
-    <details data-testid="send-midnight">
+    <details className="disclosure" data-testid="send-midnight">
       <summary>Send to a Midnight wallet (advanced)</summary>
-      <form onSubmit={submit}>
-        <label>
-          Token{' '}
-          <select value={chosen} onChange={(e) => setColor(e.target.value)} data-testid="send-token">
-            {held.map((h) => (
-              <option key={h.color} value={h.color}>
-                {tokens?.byColour(h.color)?.midnightName ?? short(h.color)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Amount{' '}
-          <input
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            inputMode="decimal"
-            data-testid="send-amount"
+      <form className="disclosure-body" onSubmit={submit}>
+        <p className="panel-intro small">
+          Pays a shielded Midnight wallet straight from your account. To move tokens back to Ethereum, use Transfers.
+        </p>
+        <div className="form-grid">
+          <Field label="Token" htmlFor="send-token">
+            <Select id="send-token" value={chosen} onChange={(e) => setColor(e.target.value)} data-testid="send-token">
+              {held.map((h) => (
+                <option key={h.color} value={h.color}>
+                  {tokens?.byColour(h.color)?.midnightName ?? short(h.color)}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field
+            label="Amount"
+            htmlFor="send-amount"
+            hint={
+              <span data-testid="send-largest">
+                Largest single payment: {formatUnits(largest, token?.decimals ?? 0)}
+              </span>
+            }
+          >
+            <UnitInput
+              id="send-amount"
+              unit={token?.midnightName ?? 'units'}
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              inputMode="decimal"
+              autoComplete="off"
+              data-testid="send-amount"
+            />
+          </Field>
+        </div>
+        <Field label="Recipient" htmlFor="send-recipient" hint="A shielded wallet address, mn_shield-addr_…">
+          <TextInput
+            id="send-recipient"
+            className="mono"
+            value={recipient}
+            onChange={(e) => setRecipient(e.target.value)}
+            autoComplete="off"
+            spellCheck={false}
+            data-testid="send-recipient"
           />
-        </label>
-        <small data-testid="send-largest">Largest single payment: {formatUnits(largest, token?.decimals ?? 0)}</small>
-        <label>
-          Recipient (shielded wallet address, mn_shield-addr_…){' '}
-          <input value={recipient} onChange={(e) => setRecipient(e.target.value)} data-testid="send-recipient" />
-        </label>
-        <p>
+        </Field>
+        <p className="small muted panel-intro">
           You sign once to send. The change stays in your account; the bank then asks for a second signature to record
           it in your account&apos;s inbox, so it can be restored from the chain.
         </p>
         {error && (
-          <p role="alert" className="notice error" data-testid="send-error">
+          <Notice tone="danger" role="alert" data-testid="send-error" className="panel-intro">
             {error}
-          </p>
+          </Notice>
         )}
-        <button type="submit" disabled={busy} data-testid="send-submit">
+        <Button type="submit" disabled={busy} data-testid="send-submit">
           Send
-        </button>
+        </Button>
       </form>
     </details>
   );
@@ -320,6 +604,7 @@ export function Accounts({ network, relayUrl }: { network: NetworkProfile; relay
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const sepolia = useSepoliaHoldings(tokens);
 
   const evmAddress = wallet.status === 'connected' ? wallet.address : null;
   const scope = useMemo(() => (evmAddress ? { network: network.name, evmAddress } : null), [evmAddress, network.name]);
@@ -431,11 +716,16 @@ export function Accounts({ network, relayUrl }: { network: NetworkProfile; relay
       setMessage({ kind: 'ok', text: 'The coin is recorded in your inbox.' });
     });
 
+  const lede =
+    'Sepolia balances are read from the chain through your wallet; Passport balances come from the coins this browser keeps, checked against your account’s inbox.';
+
   if (wallet.status !== 'connected' || !scope) {
     return (
       <section data-testid="section-accounts">
-        <h2>Accounts</h2>
-        <p>Connect your wallet to see your holdings and your MN Bank account.</p>
+        <PageHead eyebrow="Statement" title="Accounts" lede={lede} />
+        <EmptyState title="Connect your wallet">
+          Connect your wallet to see your holdings and your MN Bank account. Use Connect wallet at the top of the page.
+        </EmptyState>
       </section>
     );
   }
@@ -445,98 +735,150 @@ export function Accounts({ network, relayUrl }: { network: NetworkProfile; relay
 
   return (
     <section data-testid="section-accounts">
-      <h2>Accounts</h2>
+      <PageHead eyebrow="Statement" title="Accounts" lede={lede} />
       {message && (
-        <p
+        <Notice
+          tone={message.kind === 'error' ? 'danger' : 'success'}
           role={message.kind === 'error' ? 'alert' : 'status'}
-          className={`notice ${message.kind}`}
+          className="panel-intro"
           data-testid="accounts-message"
         >
           {message.text}
-        </p>
+        </Notice>
       )}
-      <SepoliaSection tokens={tokens} />
 
-      <section aria-labelledby="passport-title" data-testid="passport-section">
-        <h3 id="passport-title">MN Bank account</h3>
-        {!account && (
-          <div data-testid="no-account">
-            <p>This wallet has no MN Bank account in this browser.</p>
-            <p>
-              Opened one on another computer or browser? <a href="#local">Import your export on Local data</a> to use it
-              here. Opening a new account below creates a second, separate account.
-            </p>
-            {!wallet.onRightChain && <p className="notice">Switch your wallet to Sepolia first.</p>}
-            <button
-              type="button"
-              data-testid="open-account"
-              disabled={!!busy || !wallet.onRightChain || !store || store.readOnly}
-              onClick={() => void open()}
+      <SummaryFigures tokens={tokens} holdings={sepolia.holdings} coins={coins} hasAccount={!!account} />
+
+      <div className="accounts-grid">
+        <div className="area-stmt stack-gap">
+          <SepoliaSection
+            tokens={tokens}
+            address={scope.evmAddress}
+            holdings={sepolia.holdings}
+            error={sepolia.error}
+            onRefresh={() => void sepolia.refresh()}
+          />
+
+          {account && (
+            <Panel
+              title="Passport account (Midnight)"
+              data-testid="passport-section"
+              meta={
+                <>
+                  <span>
+                    {coins.filter((c) => !c.spent).length} coin{coins.filter((c) => !c.spent).length === 1 ? '' : 's'}
+                  </span>
+                  <Button
+                    variant="secondary"
+                    size="small"
+                    data-testid="refresh-balances"
+                    disabled={syncing || !!busy}
+                    onClick={() => void sync()}
+                  >
+                    {syncing ? 'Refreshing…' : 'Refresh balances'}
+                  </Button>
+                </>
+              }
             >
-              {registering || busy === 'register' ? 'Opening your account…' : 'Open account'}
-            </button>
-            <p>
-              <small>You sign once. The bank pays every network fee; you need no Midnight wallet.</small>
-            </p>
-          </div>
-        )}
-        {account && !hasSecret && (
-          <p role="alert" className="notice error" data-testid="account-not-found">
-            This browser does not hold this account&apos;s key. Import your export on <a href="#local">Local data</a>.
-          </p>
-        )}
-        {account && (
-          <div data-testid="account" data-account={account.address}>
-            <p>
-              Account{' '}
-              <span className="mono" data-testid="account-address">
-                {account.address}
-              </span>
-              <br />
-              <small>Key: your wallet {short(account.device, 6, 4)}</small>
-            </p>
-            <button
-              type="button"
-              data-testid="refresh-balances"
-              disabled={syncing || !!busy}
-              onClick={() => void sync()}
-            >
-              {syncing ? 'Refreshing…' : 'Refresh balances'}
-            </button>
-            <PassportHoldings coins={coins} tokens={tokens} />
-            {unsecured.length > 0 && (
-              <div data-testid="pending-items">
-                <h4>Pending</h4>
-                <ul>
+              {!hasSecret && (
+                <Notice tone="danger" role="alert" className="panel-intro" data-testid="account-not-found">
+                  This browser does not hold this account&apos;s key. Import your export on{' '}
+                  <a href="#local">Local data</a>.
+                </Notice>
+              )}
+              <div data-testid="account" data-account={account.address}>
+                <PassportHoldings coins={coins} tokens={tokens} />
+                <p className="table-note">
+                  One payment can use only one coin, so the largest single payment can be less than the balance. A stock
+                  with no live bid is shown but not valued.
+                </p>
+                <p className="account-number">
+                  Account number{' '}
+                  <span className="mono break" data-testid="account-address">
+                    {account.address}
+                  </span>
+                  <br />
+                  <span className="xsmall muted">Key: your wallet {short(account.device, 6, 4)}</span>
+                </p>
+                <SendForm
+                  coins={coins}
+                  tokens={tokens}
+                  network={network.name}
+                  onSend={(c, a, r) => void send(c, a, r)}
+                  busy={!!busy}
+                />
+              </div>
+            </Panel>
+          )}
+        </div>
+
+        <div className="area-side stack-gap">
+          {account && (
+            <Panel tone="quiet" as="aside" title="Pending" data-testid="pending-box">
+              <p className="small muted">Not yet in the balances above, or waiting for you.</p>
+              {unsecured.length === 0 && !job ? <p className="pending-item small muted">Nothing pending.</p> : null}
+              {unsecured.length > 0 && (
+                <div data-testid="pending-items">
                   {unsecured.map((c) => (
-                    <li key={c.commitment} data-testid="unsecured-coin">
-                      {formatUnits(BigInt(c.value), tokens?.byColour(c.color)?.decimals ?? 0)}{' '}
-                      {tokens?.byColour(c.color)?.midnightName ?? short(c.color)} — change not yet recorded in your
-                      inbox{' '}
-                      <button
-                        type="button"
+                    <PendingItem
+                      key={c.commitment}
+                      data-testid="unsecured-coin"
+                      what={
+                        <>
+                          {formatUnits(BigInt(c.value), tokens?.byColour(c.color)?.decimals ?? 0, {
+                            minFractionDigits: 2,
+                            grouping: true,
+                          })}{' '}
+                          {tokens?.byColour(c.color)?.midnightName ?? short(c.color)}
+                        </>
+                      }
+                      state="Change not yet recorded in your inbox."
+                      meta="Record it so an export can always restore it from the chain. One signature."
+                    >
+                      <Button
+                        variant="secondary"
+                        size="small"
                         disabled={!!busy}
                         onClick={() => void secure(c)}
                         data-testid="secure-change"
                       >
                         Record it now
-                      </button>
-                    </li>
+                      </Button>
+                    </PendingItem>
                   ))}
-                </ul>
-              </div>
-            )}
-            <SendForm
-              coins={coins}
-              tokens={tokens}
-              network={network.name}
-              onSend={(c, a, r) => void send(c, a, r)}
-              busy={!!busy}
-            />
-          </div>
-        )}
-        {job && <JobTracker job={job} />}
-      </section>
+                </div>
+              )}
+            </Panel>
+          )}
+
+          {job && <JobTracker job={job} />}
+
+          {!account && (
+            <Card title="Open your Passport account" data-testid="no-account">
+              <p className="panel-intro">
+                This wallet has no MN Bank account in this browser. Your wallet signs once to open one; the bank pays
+                every Midnight fee, and you need no Midnight wallet.
+              </p>
+              {!wallet.onRightChain && (
+                <Notice tone="warning" className="panel-intro">
+                  Switch your wallet to Sepolia first.
+                </Notice>
+              )}
+              <Button
+                data-testid="open-account"
+                disabled={!!busy || !wallet.onRightChain || !store || store.readOnly}
+                onClick={() => void open()}
+              >
+                {registering || busy === 'register' ? 'Opening your account…' : 'Open account'}
+              </Button>
+              <p className="table-note">
+                Opened one on another computer or browser? <a href="#local">Import your data on Local data</a> to use it
+                here instead: opening a new account creates a second, separate account.
+              </p>
+            </Card>
+          )}
+        </div>
+      </div>
     </section>
   );
 }
