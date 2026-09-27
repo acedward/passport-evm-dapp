@@ -60,6 +60,7 @@ export function harness(
     catalogue?: Map<RelayActionName, ActionDefinition>;
     passportCall?: AppDeps['passportCall'];
     chain?: ChainReader;
+    bridge?: AppDeps['bridge'];
   } = {},
 ) {
   const config = opts.config ?? testConfig();
@@ -95,6 +96,7 @@ export function harness(
     health,
     chain: opts.chain ?? notImplementedChainReader,
     ...(opts.passportCall ? { passportCall: opts.passportCall } : {}),
+    ...(opts.bridge ? { bridge: opts.bridge } : {}),
     clientAddress: () => '198.51.100.7',
   });
   return { app, config, log, nonces, queue, catalogue };

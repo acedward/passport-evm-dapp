@@ -19,6 +19,8 @@ export const API_PATHS = {
   accountState: (account: string) => `/v1/accounts/${account}/state`,
   accountInbox: (account: string) => `/v1/accounts/${account}/inbox`,
   accountZswap: (account: string) => `/v1/accounts/${account}/zswap`,
+  /** `?kind=deposit|withdraw&account=<64 hex>[&erc20=<0x…>]`: the Sepolia fields to sign (plan L-BRG). */
+  bridgeQuote: '/v1/bridge/quote',
 } as const;
 
 // ── Errors ──────────────────────────────────────────────────────────────────

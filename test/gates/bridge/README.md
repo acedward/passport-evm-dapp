@@ -4,7 +4,7 @@ A live, script-level gate: a **Passport account** starts a deposit through the E
 
 | File | What it is |
 |---|---|
-| `relay-compose.ts` | Pure helpers for the dApp relay (L-BRG): the request-id match, the options of the vault's `relayRequest`, the signature budget, the resumable JSON codec. Unit tested (`relay-compose.test.ts`, vitest project `gate-bridge`). |
+| `relay-compose.ts` | A re-export of `relay/src/bridge/relay-compose.ts`, where plan L-BRG.4 moved it unchanged: the request-id match, the options of the vault's `relayRequest`, the signature budget, the resumable JSON codec. Unit tested here (`relay-compose.test.ts`, vitest project `gate-bridge`); `run-gate.sh` mounts `relay/src/bridge` for the gate image. |
 | `gate.ts` | The live driver. One command per step, state outside the repository, resumable by request id. Runs under Bun inside the gate image. |
 | `run-gate.sh` | The Docker wrapper: the shared funding-wallet lock, the pinned proof server, memory headroom, read-only mounts of every secret. |
 

@@ -1,12 +1,14 @@
 // The application shell: the MN Bank masthead (brand, the connected wallet with its Sepolia
 // badge, the Passport account with its "Midnight stagenet" badge), the tab bar, the five
 // sections and the testnet footer, in the owner-approved design (plan P1.5, Q16 A). The pieces
-// come from ./design; this file only wires them to the wallet and the store.
+// come from ./design; this file only wires them to the wallet and the store. Trade arrives with
+// its lane (L-TRD).
 
 import { useEffect, useMemo, useState } from 'react';
 
 import type { NetworkProfile } from '@mnbank/core';
 
+import { TransfersProvider } from './bridge/TransfersContext.js';
 import { loadSiteConfig, type SiteConfig } from './config.js';
 import {
   Button,
@@ -24,6 +26,7 @@ import { MarketProvider } from './market/MarketContext.js';
 import { Accounts } from './pages/Accounts.js';
 import { LocalData } from './pages/LocalData.js';
 import { Markets } from './pages/Markets.js';
+import { Transfers } from './pages/Transfers.js';
 import { findAccount } from './passport/records.js';
 import { StoreProvider, useStore } from './store/StoreContext.js';
 import { WalletProvider, useWallet } from './wallet/WalletContext.js';
@@ -209,6 +212,8 @@ function Shell({ network, config }: { network: NetworkProfile; config: SiteConfi
           <Accounts network={network} relayUrl={config.relayUrl} />
         ) : section === 'markets' ? (
           <Markets />
+        ) : section === 'transfers' ? (
+          <Transfers network={network} />
         ) : (
           <section data-testid={`section-${section}`}>
             <PageHead title={pending} />
@@ -248,7 +253,9 @@ export function App() {
     <StoreProvider>
       <WalletProvider network={config.network}>
         <MarketProvider network={config.network} tokens={config.tokens}>
-          <Shell network={config.network} config={config} />
+          <TransfersProvider network={config.network} relayUrl={config.relayUrl}>
+            <Shell network={config.network} config={config} />
+          </TransfersProvider>
         </MarketProvider>
       </WalletProvider>
     </StoreProvider>
