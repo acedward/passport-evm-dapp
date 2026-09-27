@@ -42,6 +42,7 @@
 #   MIN_DISK_GB_UP       free Docker VM disk needed before `up` (default 6.5)
 #   MIN_DISK_GB          the floor while running; the monitor tears down below it (default 4)
 #   MIN_MEM_HEADROOM_GB  free Docker memory needed before proving (default 10)
+#   MONITOR_SECONDS      the disk/memory sampler's interval (default 60)
 #   KEEP_STACK=1         `all` leaves everything up (for another `test`)
 #
 # Host rules this follows (plan 00039 "How to work"): one full local stack per host (STACK_LOCK);
@@ -72,6 +73,7 @@ MIN_DISK_GB_UP="${MIN_DISK_GB_UP:-6.5}"
 MIN_DISK_GB="${MIN_DISK_GB:-4}"
 MIN_MEM_HEADROOM_GB="${MIN_MEM_HEADROOM_GB:-10}"
 LOCK_LABEL="${E2E_LOCK_LABEL:-P4-C}"
+MONITOR_SECONDS="${MONITOR_SECONDS:-60}"
 
 PROOF_IMAGE="midnightntwrk/proof-server@sha256:38a819eacde273f725551fdf90ca7c31ebf3c0ff145f3ed58ee35f92fb7ce95b"
 PP_GENERATION="b73584978fc560bb827fd9df3ad914b37a6f5ea434fe62e9fa0adad809d8486c"
@@ -115,8 +117,9 @@ resources_line() {
   printf '%s\tdisk_free_gb=%s\tmem_headroom_gb=%s\n' "$(date -u +%FT%TZ)" "$(disk_free_gb)" "$(mem_headroom_gb)"
 }
 
-# A background sampler: disk + per-container memory every 5 minutes (the plan asks for a disk check
-# at least every ~20 minutes). Below MIN_DISK_GB it writes an abort flag the test loop obeys.
+# A background sampler: disk + per-container memory every MONITOR_SECONDS (default 60; the plan asks
+# for a disk check at least every ~20 minutes). Below MIN_DISK_GB it writes an abort flag the test
+# loop obeys. Memory is sampled, so a proof's peak between two samples can be missed.
 monitor_start() {
   monitor_stop
   local P
@@ -131,10 +134,11 @@ monitor_start() {
       if [[ -n "$free" ]] && ! ge "$free" "$MIN_DISK_GB"; then
         echo "disk ${free} GB < ${MIN_DISK_GB} GB" >"$E2E_STATE_DIR/abort"
       fi
-      sleep 300
+      sleep "$MONITOR_SECONDS"
     done
   ) >/dev/null 2>&1 &
   echo $! >"$MONITOR_PID_FILE"
+  disown "$!" 2>/dev/null || true # no "Terminated" line when `down` stops it
 }
 monitor_stop() {
   if [[ -s "$MONITOR_PID_FILE" ]]; then
@@ -145,7 +149,7 @@ monitor_stop() {
 
 # ── state ────────────────────────────────────────────────────────────────────────────
 
-env_of() { grep -E "^$1=" "$2" 2>/dev/null | tail -1 | cut -d= -f2-; }
+env_of() { { grep -E "^$1=" "$2" 2>/dev/null || true; } | tail -1 | cut -d= -f2-; } # empty when unset
 project() { env_of COMPOSE_PROJECT_NAME "$STACK_ENV"; }
 e2e_port() { env_of E2E_PORT "$RUN_ENV"; }
 
@@ -373,6 +377,15 @@ e2e_test() {
   [[ -n "$P" ]] && docker inspect "$RELAY" >/dev/null 2>&1 || die "the stack is not up (run: $0 up)"
   mkdir -p "$E2E_OUT_DIR"
   rm -f "$E2E_STATE_DIR/abort"
+  # The relay proves k=18 circuits (about 8 GB each, one at a time): wait for the memory.
+  local mem
+  for i in $(seq 1 31); do
+    mem="$(mem_headroom_gb)"
+    ge "$mem" "$MIN_MEM_HEADROOM_GB" && break
+    [[ "$i" == 31 ]] && die "Docker memory headroom stayed below $MIN_MEM_HEADROOM_GB GB for 30 minutes"
+    say "Docker memory headroom $mem GB < $MIN_MEM_HEADROOM_GB GB; waiting 60 s ($i/30)"
+    sleep 60
+  done
   DOCKER_CHECK_NAME="$CHECK_NAME" "$ROOT/scripts/docker-check.sh" sync
   # The sync removes every file it does not own, the faucet's included: copy it again.
   docker exec "$RUNNER" sh -c 'rm -rf /app/.e2e-faucet && mkdir -p /app/.e2e-faucet/managed'

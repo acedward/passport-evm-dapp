@@ -83,7 +83,7 @@ the stack's test faucet is a second stock (wStkB).
 | Need | Why |
 |---|---|
 | Docker with **≥ 30 GB of memory** | The stack uses about 7 GB, and a k=18 proof about 8 GB more. |
-| **≥ 6.5 GB free** on Docker's disk before `up` (`MIN_DISK_GB_UP`) | The stack's volumes and the kernel image. A monitor samples disk and memory every 5 minutes, and the run aborts below `MIN_DISK_GB` (4). |
+| **≥ 6.5 GB free** on Docker's disk before `up` (`MIN_DISK_GB_UP`) | The stack's volumes and the kernel image. A monitor samples disk and memory every minute (`MONITOR_SECONDS`), and the run aborts below `MIN_DISK_GB` (4). The browser run waits until Docker has `MIN_MEM_HEADROOM_GB` (10) of memory free. |
 | The account's **key cache**, about 4.5 GB on the host (`KEYS_DIR`) | The relay proves every account circuit. `run-e2e.sh prepare` copies it, and the stack's test-faucet artefacts (`FAUCET_DIR`), out of the stack's `aa-contracts` image when they are missing. The relay refuses a key set whose fingerprint differs from `RELAY_KEYS_FINGERPRINT`. |
 | The stack's images | When `midnight-2-offers/*:$STACK_IMAGE_BASE` exist, they are re-tagged, not rebuilt. Otherwise `up.sh` builds them, and the `aa-contracts` compile needs about 15 GB of disk and a long time the first time. |
 | `STACK_LOCK` (optional) | Holds the one full stack a shared host allows. `down` releases it. |
