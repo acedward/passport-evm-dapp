@@ -30,7 +30,7 @@ it says otherwise.
 |---|---|---|---|
 | `keys` | A one-shot job. It compiles the Passport account, the ERC20 vault and the Signet singleton with compactc 0.34.0, keeps the prover keys the relay needs, checks them, and writes them to the `keys` volume. Then it exits. Later starts only re-check the volume (a few seconds). | No | No |
 | `proof-server` | `midnightntwrk/proof-server:9.0.0-rc.6`, pinned by digest. It proves every Passport call and the sponsor wallet's DUST spends. | No | No |
-| `relay` | Proves, pays every DUST fee from the sponsor wallet, submits, and drives bridge requests to completion. It keeps no customer data. | Only through `web`, under `/relay/` | The sponsor seed and the Sepolia RPC URL, as files |
+| `relay` | Proves, pays every DUST fee from the sponsor wallet, submits, and drives bridge requests to completion. It also closes bridge requests their owners left open (section 14.1). It keeps no customer data. | Only through `web`, under `/relay/` | The sponsor seed and the Sepolia RPC URL, as files |
 | `web` | The static site on an unprivileged nginx. It also passes `/relay/` to the relay, so the site and the relay share one origin. | Yes, behind your TLS proxy | No |
 
 Volumes:
@@ -103,7 +103,7 @@ docker compose -f deploy/compose.yml build
 
 # 5. The sponsor wallet (section 4) and the Sepolia RPC file (section 5).
 
-# 6. The key volume (section 6): about 30 to 60 minutes the first time. Watch it finish.
+# 6. The key volume (section 6): about 15 to 60 minutes the first time. Watch it finish.
 docker compose -f deploy/compose.yml up keys
 
 # 7. Start everything.
@@ -191,7 +191,7 @@ live stagenet parameters (read on 2026-09-27) are:
 So the NIGHT you register sets both the **ceiling** (5 × NIGHT) and the **daily income**
 (0.714 × NIGHT per day). `sponsor-wallet status` prints the parameters live.
 
-What the bank spends (margin 20, measured on stagenet):
+What the bank spends (margin 20, measured on stagenet; `docs/PERFORMANCE.md` has every figure):
 
 | Action | DUST from the sponsor |
 |---|---|
@@ -200,6 +200,7 @@ What the bank spends (margin 20, measured on stagenet):
 | Bridge withdrawal (start and complete) | about 2.6; with the change re-filed, about 3.1 |
 | Shielded withdrawal to a wallet, change re-filing | about 1 each |
 | Make an offer; take an offer | 0 (the batcher pays the settlement) |
+| Close a customer's stale bridge request (section 14.1) | one settle or `abandonDeposit`, about 0.1 to 0.3; at most 24 a day |
 
 Sizing example: 1,000 NIGHT gives a ceiling of 5,000 DUST and about 714 DUST a day, which pays for
 about 11 new accounts a day, or several hundred bridge transfers. Registration dominates.
@@ -291,9 +292,20 @@ right one before anything else starts.
      (`d6de768a…c503`, the set every stagenet account so far was deployed with).
 5. Installs the set into the volume and writes the report `.mnbank-keys.json`.
 
-Any failure exits non-zero, and Compose then starts neither the proof server's users nor the
-relay. On later starts the job sees the report, finds the same inputs, and only re-verifies
-(about 2 seconds, including the read from the indexer).
+Any failure exits non-zero, and Compose then does not start the relay or the web site. On later
+starts the job sees the report, finds the same inputs, and only re-verifies (about 2 seconds,
+including the read from the indexer).
+
+The relay checks the volume again when it starts, and refuses to start (exit code 78, with the
+list of problems in its first log line) when:
+- any of the 16 circuits it proves lacks its prover key, verifier key or ZKIR;
+- the vault's or the singleton's verifier keys are not the deployed ones (PR #4's record);
+- the fingerprint is not `RELAY_KEYS_FINGERPRINT`;
+- no volume is mounted (compose sets `RELAY_REQUIRE_KEYS=true`).
+
+Measured on a 12-core host with the job capped at 4 CPUs: the compile took 14 minutes (12.5 of
+them for the account's 33 circuits), peaked at 3.7 GB of memory and 7.9 GB of disk, and left
+3.4 GB. It reproduced the pinned fingerprint bit for bit. Budget up to an hour on a small host.
 
 ### 6.2 Run it
 
@@ -422,13 +434,25 @@ unhealthy only when `/health` answers 503.
 | `proofServer.jobCapacity` | Jobs the proof server accepts at once (10). | Informational. |
 | `proofServer.keys.present` | The key volume is mounted and readable. | `false`: the `keys` volume is missing or empty; run the `keys` job. |
 | `proofServer.keys.fingerprint`, `pinned`, `matchesPin` | The key set's identity and the pin check. | `matchesPin: false` never happens on a running relay (it refuses to start); if it does, stop and see section 6.3. |
+| `proofServer.keys.complete`, `problems` | Every circuit the relay proves has its keys, as deployed; `problems` counts the ones that do not. | Always `true` / `0` on a running relay (it refuses to start otherwise). |
 | `queue.jobs` | Jobs held in memory (running, waiting, and finished within `JOB_TTL_SECONDS`). | Informational. |
 | `queue.lanes.prover` | Proofs running (at most 1) and waiting. | A `waiting` above 5 for long means customers wait minutes: the one-proof limit (section 10). |
 | `queue.lanes.deposit` | Bridge deposits running and waiting (one at a time per account). | Informational. |
 | `queue.lanes.withdrawal` | Bridge withdrawals running and waiting (one at a time for the whole bank). | A withdrawal stuck for more than 40 minutes: section 14.1. |
 | `kernel.reachable`, `kernel.synced` | The ZSwap kernel answers and has caught up with the chain. | `false`: prices show "exchange unavailable" and offers cannot be made or taken; accounts and the bridge still work. Tell the kernel operator (section 14.3). |
 | `batcher.reachable` | The batcher answers. | `false`: takes fail; tell the kernel operator. |
+| `batcher.lastRefusal` | The batcher's last refusal of a take this relay sent: `httpStatus` (429 = its request cap, 500 = a generic failure; a replayed settlement answers 500 too) and `at` (Unix seconds); `null` when none. | A recent 429: the daily cap (section 10); takes resume when the window moves. Repeated 500s: tell the kernel operator. |
 | `vaultGas.address`, `balanceWei`, `low` | The vault's EVM account and its Sepolia ETH; `low` below `VAULT_GAS_LOW_WEI`. `balanceWei: null` means the Sepolia RPC did not answer. | `low: true`: top it up (section 8). `null` for long: check the RPC file and provider. |
+| `bridge.available` | The bridge is loaded: the key volume, the vault profile and the Sepolia RPC file are all there. | `false`: deposits and withdrawals are refused; read the relay's start-up log. |
+| `bridge.mpc.lastSignatureAfterSeconds` | How long Sig Network's MPC took to sign the last request this relay drove; `null` before any. | Normally 20 to 110 s. Several minutes: the MPC is slow (section 14.2). |
+| `bridge.mpc.timeouts24h` | Requests whose signature did not arrive within 20 minutes, last 24 hours. | Above 0: section 14.2. |
+| `bridge.mpc.inFlight` | Requests being driven now (waiting for the MPC or for Sepolia). | Informational; each lasts about 20 minutes. |
+| `bridge.staleRequests.enabled`, `lastScanAt` | The closer is on (`STALE_CLOSE_ENABLED`), and when it last read the vault (Unix seconds). | A `lastScanAt` older than twice `STALE_CLOSE_INTERVAL_SECONDS`: the relay cannot read the vault; check the indexer. |
+| `bridge.staleRequests.open.deposit`, `open.withdraw` | Requests open in the vault right now, from every requester (not only this bank's customers). | Informational. |
+| `bridge.staleRequests.waiting`, `closing` | This bank's stale requests waiting to be closed, and the one being closed. | `waiting` that does not fall: read `paused`. |
+| `bridge.staleRequests.closed24h`, `maxPerDay` | Closes the sponsor paid for in the last 24 hours, and the cap (`STALE_CLOSE_MAX_PER_DAY`). | Near the cap every day: someone may be starting requests and leaving them; check `recent`, and lower the cap if needed. |
+| `bridge.staleRequests.recent` | The newest closes: `kind`, `requestId`, `circuit`, `tx`, `at` (public values). | For support: a customer's request id shows what happened to it. |
+| `bridge.staleRequests.paused` | Why the closer holds back (the sponsor is under `STALE_CLOSE_MIN_DUST_SPECKS`, the daily cap is reached), or `null`. | Add DUST (section 4), or wait for the window. |
 
 Also watch:
 
@@ -548,25 +572,51 @@ curl -s -H 'content-type: application/json' \
 ### 14.1 A bridge request is stuck (plan question Q21)
 
 A bridge request is "open" in the vault from its start until its settle. The relay refuses a new
-deposit of the same account, or any new withdrawal, while an earlier one is open.
+deposit of the same account while an earlier one is open, because both are swept from the same
+deposit address. It refuses **every** new withdrawal while any withdrawal is open, because all of
+them pay from the vault's one EVM account. So one request that nobody finishes can block one
+customer's deposits, or the whole bank's withdrawals.
 
-Symptoms: a customer sees "resume it first" (deposit) or "another withdrawal is still being
-processed" (withdrawal) for longer than about 40 minutes; `/health` shows a withdrawal running for
-that long.
+**The relay closes such requests itself.** At start-up and then every `STALE_CLOSE_INTERVAL_SECONDS`
+(5 minutes), it reads the vault's open requests. A request is stale when no job of this relay is
+driving it and it has been open for `STALE_CLOSE_AFTER_SECONDS` (15 minutes) since the relay first
+saw it. For a stale request of an MN Bank account:
 
-What to do:
+- **a withdrawal**: the relay finishes following it (the MPC's signature, Sepolia, the
+  attestation), then runs the settle (`bridge_withdraw_complete`, or `bridge_withdraw_refund` when
+  the transfer never ran). The settle is permissionless and pinned: any coin it mints goes to the
+  account the vault names, with its inbox entry sealed to that account's key. Nothing can be
+  redirected;
+- **a deposit** that Sig Network attested as never executed: the vault's permissionless
+  `abandonDeposit`. Nothing is minted or moved: the tokens stay at the customer's deposit address,
+  and their next deposit sweeps them. Any other deposit stays the customer's to resume.
 
-1. Ask the customer who started it to open Transfers and press **Resume**. Resuming continues the
-   same request (the MPC may already have signed) and settles it.
-2. The relay's automatic closer (plan question Q21, option A, from the hardening release) scans
-   the vault's open requests at start-up and on a timer. It settles an account's withdrawal (the
-   settle is permissionless and pinned to the account, so the funds can only go back to that
-   account) and abandons a deposit that Sig Network attested as never executed. It pays one small
-   fee per close from the sponsor wallet, with a daily cap. If your build predates it, only the
-   customer's Resume closes a request.
-3. A deposit whose sweep never ran on Sepolia leaves the customer's tokens at their deposit
-   address. They are safe there: once the request is abandoned, the customer's next deposit
-   sweeps them.
+Requests of wallets and of other contracts are never touched.
+
+**What the sponsor pays.** Each close is one transaction whose DUST fee the sponsor pays: the
+settle or `abandonDeposit` (about 0.1 to 0.3 DUST). Following a request costs no DUST, and a
+withdrawal's Sepolia gas comes from the vault's EVM account, as for every withdrawal. Someone could
+start requests to accounts and walk away, so the spend is capped:
+
+- at most `STALE_CLOSE_MAX_PER_DAY` (24) closes in any rolling 24 hours;
+- none while the sponsor holds less than `STALE_CLOSE_MIN_DUST_SPECKS` (default twice the
+  low-DUST level: 20 DUST), so customers' own actions keep priority;
+- one close at a time; a failed close is retried after `STALE_CLOSE_RETRY_SECONDS` (30 minutes).
+
+**What customers see.** A customer who presses Resume while the bank is closing the same request
+waits for the bank's run and gets its result. A page whose transfer the bank closed reads
+`GET /relay/v1/bridge/closed/<request id>` and shows "A stale request was closed", with the
+circuit and the transaction. The route answers 404 when this relay has not closed that request
+recently (the record lives in memory, like jobs). A deposit whose sweep never ran is now abandoned
+by its own job at once, instead of blocking the account.
+
+What to do when a customer reports a block:
+
+1. Ask them to open Transfers and press **Resume**. It continues the same request, and the MPC may
+   already have signed.
+2. Read `/health` `bridge.staleRequests`: `waiting` and `closing` show the closer's work, `recent`
+   what it closed, and `paused` why it waits. If it is paused for DUST, add DUST (section 4).
+3. With `STALE_CLOSE_ENABLED=false`, only the customer's Resume closes a request.
 
 ### 14.2 The MPC is slow
 
@@ -575,7 +625,10 @@ Sig Network's MPC normally signs within 20 to 110 seconds, and attests after Sep
 the attestation.
 
 - If the MPC has not signed within 20 minutes, the transfer shows "Needs you to resume it".
-  Nothing moved on Sepolia. The customer resumes later; the request is not lost.
+  Nothing moved on Sepolia. The customer resumes later; the request is not lost. `/health`
+  counts these in `bridge.mpc.timeouts24h`, and shows the last signing time in
+  `bridge.mpc.lastSignatureAfterSeconds`, and the site shows customers a notice while the MPC
+  is slow.
 - Check the request on Sig Network's explorer:
   `https://sig-net.github.io/explorer/midnight/explorer?networkId=stagenet`.
 - If every request is slow, the MPC network is degraded. Tell customers to expect delays; there is
@@ -588,6 +641,7 @@ the attestation.
 - `/health` shows `kernel.reachable: false` (or `batcher.reachable: false`) and `degraded`.
 - Tell the kernel operator. Nothing to restart here; the site recovers by itself.
 - A batcher that answers 429 means the daily cap (section 10): takes resume when the window moves.
+  `/health` `batcher.lastRefusal` shows the last refusal and when it happened.
 
 ### 14.4 Other failures
 
@@ -596,7 +650,7 @@ the attestation.
 | `proofServer.reachable: false`, proof server restarting | Out of memory during a k=18 proof | Raise `PROOF_SERVER_MEM_LIMIT` (at least 10g). |
 | Actions refused, `sponsor.dustLow: true` | Out of DUST | Section 4.4. |
 | `sponsor.state: error` | The wallet's connection to the node or indexer failed | `docker compose restart relay`; if it repeats, check stagenet's status. |
-| Relay exits with code 78 | A configuration error, or a key set other than the pinned one | Read the first log line: it names the setting. |
+| Relay exits with code 78 | A configuration error, or a key volume that is missing, incomplete or not the pinned one | Read the first error line: it names the setting, or lists the missing and mismatched keys. Then section 6. |
 | Relay exits with code 75 | The sponsor wallet could not be opened (for example a held lock file) | Read the log; check the seed file and `SPONSOR_FUNDING_LOCK_FILE`. |
 | `keys` exits non-zero | Section 6.3 | Section 6.3. |
 | Withdrawals refused before they start: "vault gas" | The vault's EVM account holds less than 0.001 ETH | Section 8. |

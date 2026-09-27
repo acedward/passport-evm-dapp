@@ -13,8 +13,9 @@
 #                 then exits 0. Later starts only re-verify. A failure stops everything below.
 #   proof-server  midnightntwrk/proof-server 9.0.0-rc.6 (pinned by digest): proves every Passport
 #                 circuit and the sponsor wallet's DUST spends. Internal only. Starts with `keys`.
-#   relay         proves, pays DUST from the sponsor wallet, submits, drives bridge requests.
-#                 Mounts `keys` read-only; refuses to start on a key set other than the pinned one.
+#   relay         proves, pays DUST from the sponsor wallet, submits, drives bridge requests, and
+#                 closes bridge requests their owners left open (Q21 A). Mounts `keys` read-only;
+#                 refuses to start on a key set that is incomplete or not the pinned one.
 #   web           the static site on unprivileged nginx, with /relay/ proxied to the relay.
 #
 # Nothing secret is in this file or in any image: the sponsor seed and the Sepolia RPC URL are
@@ -97,6 +98,8 @@ services:
       RELAY_TRUST_PROXY: ${RELAY_TRUST_PROXY:-true}
       MIDNIGHT_PROOF_SERVER_URL: http://proof-server:6300
       MIDNIGHT_MANAGED_PATH: /app/vendor/passport/contract/contracts/managed
+      # A deployment never runs keyless: no key volume, or an incomplete one, stops the relay.
+      RELAY_REQUIRE_KEYS: 'true'
       SPONSOR_SEED_FILE: /run/secrets/sponsor_seed
       SEPOLIA_RPC_URL_FILE: /run/secrets/sepolia_rpc_url
     secrets:

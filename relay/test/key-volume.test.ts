@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -18,6 +18,7 @@ import {
   verifierDigests,
 } from '../src/prover/key-volume.js';
 import { scanKeyTree } from '../src/prover/keys.js';
+import { RELAY_PROVEN_CIRCUITS } from '../src/prover/required.js';
 
 const sha = (s: string | Uint8Array) => createHash('sha256').update(s).digest('hex');
 const dirs: string[] = [];
@@ -63,21 +64,10 @@ describe('the kept prover list', () => {
     expect(() => parseKeptProvers('account/../x')).toThrow(/bundle/);
   });
 
-  it('covers every prover key the relay requires (relay/src/main.ts requiredProverKeys)', () => {
-    const src = join(__dirname, '..', 'src');
-    const files = readdirSync(src, { recursive: true })
-      .map(String)
-      .filter((f) => f.endsWith('.ts'))
-      .map((f) => readFileSync(join(src, f), 'utf8'))
-      .filter((text) => /requiredProverKeys\s*=\s*\[/.test(text));
-    expect(files.length).toBeGreaterThan(0);
-    const required = new Set<string>();
-    for (const text of files) {
-      const block = /requiredProverKeys\s*=\s*\[([\s\S]*?)\]/.exec(text)?.[1] ?? '';
-      for (const m of block.matchAll(/'((?:account|Erc20Vault|SignetSigner)\/[A-Za-z0-9_]+)'/g)) required.add(m[1]!);
-    }
-    expect(required.size).toBeGreaterThan(10);
-    for (const r of required) expect(DEFAULT_KEPT_PROVERS).toContain(r);
+  it('keeps every circuit the relay proves (relay/src/prover/required.ts)', () => {
+    expect(RELAY_PROVEN_CIRCUITS.length).toBe(16);
+    for (const r of RELAY_PROVEN_CIRCUITS) expect(DEFAULT_KEPT_PROVERS).toContain(r);
+    expect(DEFAULT_KEPT_PROVERS).toHaveLength(RELAY_PROVEN_CIRCUITS.length + 1);
   });
 });
 

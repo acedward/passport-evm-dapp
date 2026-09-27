@@ -19,6 +19,8 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { RELAY_PROVEN_CIRCUITS } from './required.js';
+
 /** The bundles a relay key volume holds, in compile order (callees first). */
 export const KEY_VOLUME_BUNDLES = ['SignetSigner', 'SignetCircuits', 'Erc20Vault', 'account'] as const;
 
@@ -27,31 +29,12 @@ export const KEYED_BUNDLES = ['SignetSigner', 'Erc20Vault', 'account'] as const;
 
 /**
  * The prover keys the key job keeps, as `<bundle>/<circuit>`. Everything else is pruned after
- * the compile (the account's bundle is about 7.2 GB with every key and 3.0 GB with these).
+ * the compile (the account's bundle is about 7.9 GB with every key and 3.0 GB with these).
  *
- * The relay's own required list (relay/src/main.ts) plus two it may prove:
- * `Erc20Vault/abandonDeposit` (closing a never-executed deposit, plan question Q21) and
- * `account/deposit_shielded` (the relay-assisted take's return leg, Q15, and the funding tools).
+ * Every circuit the relay proves (./required.ts, which the relay's start-up check enforces), plus
+ * `account/deposit_shielded`: the relay-assisted take's return leg (Q15) and the funding tools.
  */
-export const DEFAULT_KEPT_PROVERS: readonly string[] = [
-  'account/activate_initial_device_with_evm',
-  'account/withdraw_shielded_with_evm',
-  'account/append_inbox_with_evm',
-  'account/open_swap_shielded_with_evm',
-  'account/deposit_shielded',
-  'account/bridge_deposit_start_with_evm',
-  'account/bridge_deposit_complete',
-  'account/bridge_withdraw_start_with_evm',
-  'account/bridge_withdraw_complete',
-  'account/bridge_withdraw_refund',
-  'Erc20Vault/startDeposit',
-  'Erc20Vault/completeDeposit',
-  'Erc20Vault/abandonDeposit',
-  'Erc20Vault/startWithdraw',
-  'Erc20Vault/completeWithdraw',
-  'Erc20Vault/refundWithdraw',
-  'SignetSigner/signBidirectional',
-];
+export const DEFAULT_KEPT_PROVERS: readonly string[] = [...RELAY_PROVEN_CIRCUITS, 'account/deposit_shielded'];
 
 const sha256 = (b: Uint8Array | string) => createHash('sha256').update(b).digest('hex');
 
