@@ -66,6 +66,8 @@ export interface RelayConfig {
   };
   limits: {
     readsPerMinute: number;
+    /** GET /health per client address (security review F-B1); monitors poll about once a minute. */
+    healthPerMinute: number;
     noncesPerMinute: number;
     actionsPerMinute: number;
     actionsPerOwnerPerMinute: number;
@@ -272,6 +274,7 @@ export function loadConfig(env: Env, readFile: ReadFile): { config: RelayConfig;
     },
     limits: {
       readsPerMinute: int(env.RATE_LIMIT_READS_PER_MIN, 240, 'RATE_LIMIT_READS_PER_MIN', 1),
+      healthPerMinute: int(env.RATE_LIMIT_HEALTH_PER_MIN, 60, 'RATE_LIMIT_HEALTH_PER_MIN', 1),
       noncesPerMinute: int(env.RATE_LIMIT_NONCES_PER_MIN, 30, 'RATE_LIMIT_NONCES_PER_MIN', 1),
       actionsPerMinute: int(env.RATE_LIMIT_ACTIONS_PER_MIN, 10, 'RATE_LIMIT_ACTIONS_PER_MIN', 1),
       actionsPerOwnerPerMinute: int(

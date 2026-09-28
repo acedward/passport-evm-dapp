@@ -24,13 +24,16 @@ import { healthCollector, httpProbes } from './health.js';
 import { Redactor, createLogger } from './log.js';
 import { ProofServerClient } from './prover/client.js';
 import { deployedVerifierKeys } from './prover/deployed.js';
-import { checkKeyVolume, keyVolumeProblems } from './prover/keys.js';
+import { cachedKeyCheck, checkKeyVolume, keyVolumeProblems } from './prover/keys.js';
 import { RELAY_PROVEN_CIRCUITS } from './prover/required.js';
 import { PassportRuntime, PassportRuntimeError } from './passport/runtime.js';
 import { JobQueue } from './queue/jobs.js';
 import { FacadeSponsorSession, openFacadeWallet } from './sponsor/facade.js';
 import { DisabledSponsorSession, type SponsorSession } from './sponsor/session.js';
 import { RELAY_VERSION } from './version.js';
+
+/** How often /health re-scans the read-only key volume (security review F-B1). */
+const KEY_RECHECK_SECONDS = 3600;
 
 async function main(): Promise<void> {
   const redactor = new Redactor();
@@ -214,7 +217,8 @@ async function main(): Promise<void> {
     sponsor,
     dustLowSpecks: config.sponsor.dustLowSpecks,
     prover: new ProofServerClient(config.proofServerUrl, config.proofServerVersion),
-    keys,
+    // The volume is read-only and was checked in full above: re-scan it hourly, not per request (F-B1).
+    keys: cachedKeyCheck(keys, { initial: keyCheck, intervalSeconds: KEY_RECHECK_SECONDS }),
     queue,
     probes: httpProbes({
       kernelUrl: config.network.zswap.kernelUrl,

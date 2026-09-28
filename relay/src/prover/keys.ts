@@ -165,3 +165,20 @@ export function keyVolumeProblems(k: KeyCheck, req: KeyVolumeRequirements & { ro
   }
   return out;
 }
+
+/**
+ * The key-volume check for /health (security review F-B1): the volume is mounted read-only and is
+ * checked in full at start-up, so it is re-scanned (every verifier key read and hashed) at most once
+ * per `intervalSeconds`, never per request. `initial` is the start-up result.
+ */
+export function cachedKeyCheck(
+  check: () => KeyCheck,
+  opts: { initial?: KeyCheck; intervalSeconds: number; now?: () => number },
+): () => KeyCheck {
+  const now = opts.now ?? (() => Math.floor(Date.now() / 1000));
+  let last = opts.initial ? { at: now(), value: opts.initial } : null;
+  return () => {
+    if (!last || now() - last.at >= opts.intervalSeconds) last = { at: now(), value: check() };
+    return last.value;
+  };
+}

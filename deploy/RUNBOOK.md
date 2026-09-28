@@ -415,7 +415,9 @@ for both transactions). The bank pays nothing on Sepolia for deposits.
 
 `GET /health` on the relay. From the host: `curl -s http://127.0.0.1:18080/health`. It is also
 reachable through the site at `/relay/health` (it holds public facts only). Probes of the kernel,
-batcher, proof server and Sepolia are cached for `HEALTH_CACHE_SECONDS` (15 s).
+batcher, proof server and Sepolia are cached for `HEALTH_CACHE_SECONDS` (15 s); one refresh runs
+at a time however many requests arrive, and the key volume is re-scanned hourly. `/health` is
+rate-limited per client address (`RATE_LIMIT_HEALTH_PER_MIN`, 60), so poll it at most once a second.
 
 The HTTP status is 200 for `ok` and `degraded`, and 503 for `down`. Docker marks the relay
 unhealthy only when `/health` answers 503.
@@ -471,7 +473,7 @@ Also watch:
 | Bridge deposits | one open at a time per account | Each takes about 20 minutes. Different accounts run in parallel. |
 | Batcher | **1,000 requests per 24 hours per IP per target, and 1,000 per 24 hours for all clients together** | Every take the relay settles is one request from the relay's IP, so the bank can settle at most 1,000 takes a day, and fewer if other clients of the staging batcher use the shared allowance. Past it, takes fail until the window moves. |
 | Kernel | 600 requests per minute per IP | Browsers read prices directly; the relay posts offers. |
-| Relay, per customer address | reads 240/min, nonces 30/min, actions 10/min, actions per account owner 5/min | Tune with `RATE_LIMIT_*`. |
+| Relay, per customer address | reads 240/min, `/health` 60/min, nonces 30/min, actions 10/min, actions per account owner 5/min | Tune with `RATE_LIMIT_*`. |
 | Relay jobs | kept `JOB_TTL_SECONDS` (24 h), at most `JOB_MAX` (10,000) | In memory only. |
 | Fee margin | `SPONSOR_FEE_BLOCKS_MARGIN=20` | The sponsor pays about 2.5 times each fee. At 5 the registration's activation is refused (plan question Q19). |
 | Scale | a demo bank | A handful of customers at a time, one proof at a time, with a visible queue. |

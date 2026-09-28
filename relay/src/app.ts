@@ -1,6 +1,6 @@
 // The relay's HTTP API (Hono). Routes:
 //
-//   GET  /health                        FR-013 health (200 ok/degraded, 503 down)
+//   GET  /health                        FR-013 health (200 ok/degraded, 503 down; rate-limited, F-B1)
 //   GET  /v1/config                     public configuration
 //   GET  /v1/auth/nonce                 a single-use nonce for a RelayAction authorisation
 //   POST /v1/actions/:action            THE ONLY state-changing route: every action is authorised
@@ -96,6 +96,7 @@ export function createApp(deps: AppDeps): Hono {
   const clientAddress = deps.clientAddress ?? defaultClientAddress(config.trustProxy);
   const limits = config.limits;
   const readLimiter = new RateLimiter(limits.readsPerMinute);
+  const healthLimiter = new RateLimiter(limits.healthPerMinute);
   const nonceLimiter = new RateLimiter(limits.noncesPerMinute);
   const actionLimiter = new RateLimiter(limits.actionsPerMinute);
   const ownerLimiter = new RateLimiter(limits.actionsPerOwnerPerMinute);
@@ -136,6 +137,9 @@ export function createApp(deps: AppDeps): Hono {
   // ── reads ──────────────────────────────────────────────────────────────────
 
   app.get(API_PATHS.health, async (c) => {
+    // Its own bucket (security review F-B1), so a monitor is never starved by a customer's reads.
+    const refused = limited(healthLimiter, clientAddress(c), c);
+    if (refused) return refused;
     const h = await deps.health();
     return c.json(h, h.status === 'down' ? 503 : 200);
   });

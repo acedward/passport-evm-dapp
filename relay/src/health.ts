@@ -3,7 +3,9 @@
 // key volume holds every circuit the relay proves, the batcher's last refusal of a take, and the
 // bridge: how the MPC has been answering, and the stale-request closer (Q21 A). Public data only: no URL, no
 // seed, no key. External probes are cached for a few seconds so /health cannot be used to flood
-// the services behind it.
+// the services behind it (security review F-B1): ONE refresh runs at a time and every concurrent
+// request shares it; while it runs, a recent cached report is served; the key-volume check is
+// cached separately (./prover/keys.ts `cachedKeyCheck`), and app.ts rate-limits the route.
 
 import type { HealthResponse } from '@mnbank/core';
 
@@ -90,6 +92,9 @@ export interface HealthDeps {
   vaultEvmAddress: string;
   vaultGasLowWei: bigint;
   cacheSeconds: number;
+  /** How old a cached report may be and still be served while a refresh runs (default: four cache
+   *  periods, at least 60 s). Older than that, callers wait for the one shared refresh. */
+  maxStaleSeconds?: number;
   /** The bridge's live facts (plan P4-A): the MPC as the relay saw it, and the stale closer. */
   bridge?: () => NonNullable<HealthResponse['bridge']>;
   /** The batcher's last refusal of a take (plan P4-A), or null. */
@@ -99,7 +104,10 @@ export interface HealthDeps {
 
 export function healthCollector(deps: HealthDeps): () => Promise<HealthResponse> {
   const now = deps.now ?? (() => Math.floor(Date.now() / 1000));
-  let cached: { at: number; external: Awaited<ReturnType<typeof probeAll>> } | null = null;
+  const maxStale = deps.maxStaleSeconds ?? Math.max(60, 4 * deps.cacheSeconds);
+  type External = Awaited<ReturnType<typeof probeAll>>;
+  let cached: { at: number; external: External } | null = null;
+  let refreshing: Promise<{ at: number; external: External }> | null = null;
   const probeAll = async () => {
     const [proof, kernel, batcher, gas] = await Promise.all([
       deps.prover.probe(),
@@ -109,9 +117,28 @@ export function healthCollector(deps: HealthDeps): () => Promise<HealthResponse>
     ]);
     return { proof, kernel, batcher, gas, keys: deps.keys() };
   };
+  /** The one refresh in flight: started by the first caller that finds the cache expired. */
+  const refresh = () => {
+    refreshing ??= probeAll()
+      .then((external) => (cached = { at: now(), external }))
+      .finally(() => {
+        refreshing = null;
+      });
+    return refreshing;
+  };
+  const current = async (): Promise<External> => {
+    const age = cached ? now() - cached.at : Infinity;
+    if (cached && age < deps.cacheSeconds) return cached.external;
+    const pending = refresh();
+    // A recent report is served at once while the refresh runs; an old one (or none) waits for it.
+    if (cached && age < maxStale) {
+      pending.catch(() => {});
+      return cached.external;
+    }
+    return (await pending).external;
+  };
   return async () => {
-    if (!cached || now() - cached.at >= deps.cacheSeconds) cached = { at: now(), external: await probeAll() };
-    const { proof, kernel, batcher, gas, keys } = cached.external;
+    const { proof, kernel, batcher, gas, keys } = await current();
     const sponsor = deps.sponsor.status();
     const dustLow = sponsor.dustSpecks === null ? sponsor.configured : sponsor.dustSpecks < deps.dustLowSpecks;
     const stats = deps.queue.stats();
