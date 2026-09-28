@@ -160,6 +160,24 @@ test('shell, wallet connection with the Sepolia switch, and the Local data round
     .setInputFiles({ name: 'garbage.json', mimeType: 'application/json', buffer: Buffer.from('{"hello":') });
   await expect(page.getByTestId('local-message')).toContainText('could not be read');
   expect(await bankKeys(page)).toEqual(before);
+
+  // A file that would swap in another encryption secret for the account is refused unless the
+  // chain says that key is the account's (security review F-B5); nothing changes.
+  const otherSecret = x25519.utils.randomSecretKey();
+  const swapped = JSON.parse(exported) as { records: Array<{ value: { kind: string; data: unknown } }> };
+  for (const r of swapped.records)
+    if (r.value.kind === 'secret')
+      r.value.data = {
+        encSecretKey: Buffer.from(otherSecret).toString('hex'),
+        encPublicKey: Buffer.from(x25519.getPublicKey(otherSecret)).toString('hex'),
+      };
+  await page.getByTestId('import-file').setInputFiles({
+    name: 'swapped.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify(swapped)),
+  });
+  await expect(page.getByTestId('local-message')).toContainText('would replace the encryption secret');
+  expect(await bankKeys(page)).toEqual(before);
 });
 
 test('says so when the browser blocks storage', async ({ page }) => {

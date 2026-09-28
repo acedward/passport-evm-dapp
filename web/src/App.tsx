@@ -226,7 +226,7 @@ function Shell({ network, config }: { network: NetworkProfile; config: SiteConfi
       </div>
       <main className="wrap">
         {section === 'local' ? (
-          <LocalData network={network.name} />
+          <LocalData network={network.name} relayUrl={config.relayUrl} />
         ) : section === 'accounts' ? (
           <Accounts network={network} relayUrl={config.relayUrl} />
         ) : section === 'markets' ? (

@@ -10,7 +10,7 @@
 
 import { z } from 'zod';
 
-import { APPEND_ENTITLEMENT_PATTERN } from '@mnbank/core';
+import { APPEND_ENTITLEMENT_PATTERN, encPublicKeyOf } from '@mnbank/core';
 
 import type { ParsedKey, RecordKind } from './schema.js';
 
@@ -215,6 +215,11 @@ export function recordDataProblem(key: ParsedKey, data: unknown): string | null 
       break;
     case 'job':
       if (key.id !== d.requestId) return 'a job record does not match its key';
+      break;
+    case 'secret':
+      // A secret and its public key must be one pair (security review F-B5).
+      if (encPublicKeyOf(String(d.encSecretKey)) !== d.encPublicKey)
+        return "a secret record's public key is not its secret's";
       break;
   }
   return null;

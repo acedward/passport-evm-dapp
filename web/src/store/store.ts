@@ -6,6 +6,7 @@ import {
   ExportFileSchema,
   EXPORT_FORMAT,
   EXPORT_FORMAT_VERSION,
+  MAX_IMPORT_FILE_BYTES,
   SCHEMA_KEY,
   SCHEMA_VERSION,
   SENSITIVE_KINDS,
@@ -36,6 +37,23 @@ export const MIGRATIONS: readonly Migration[] = [];
 export class ImportError extends Error {
   override name = 'ImportError';
 }
+
+/** An encryption secret an import would replace with a different one (security review F-B5). */
+export interface SecretChange {
+  key: string;
+  /** The account (64 hex), or null for a registration in progress. */
+  account: string | null;
+  /** The incoming secret's public key (checked to be its pair). */
+  encPublicKey: string;
+}
+
+/** A checked import, not yet written (`LocalStore.prepareImport`). */
+export interface ImportPlan {
+  entries: Array<[string, string]>;
+  secretChanges: SecretChange[];
+}
+
+const isSecretKey = (key: string) => parseKey(key)?.kind === 'secret';
 
 export class StoreReadOnlyError extends Error {
   override name = 'StoreReadOnlyError';
@@ -256,10 +274,13 @@ export class LocalStore {
   }
 
   /**
-   * Import an export file into the connected wallet's data. All or nothing: the file must be an
-   * MN Bank export for THIS network and THIS wallet, and every record must belong to it.
+   * Check an export file for the connected wallet, writing nothing (security review F-B4, F-B5):
+   * it must be an MN Bank export for THIS network and THIS wallet, within the size bounds, and every
+   * record must be one this page writes. Also lists the encryption secrets it would REPLACE with a
+   * different one, which `commitImport` refuses unless each is approved (the page checks the new
+   * public key against the account's on-chain key first).
    */
-  importWallet(file: unknown, expected: WalletScope): { imported: number; replaced: number } {
+  prepareImport(file: unknown, expected: WalletScope): ImportPlan {
     if (this.readOnly)
       throw new ImportError('This browser holds data from a newer version of MN Bank; nothing was imported.');
     const s = normaliseScope(expected);
@@ -284,6 +305,12 @@ export class LocalStore {
         throw new ImportError('This file is from a version of MN Bank this page cannot read. Nothing was imported.');
       entries = migrated;
     }
+    const bytes = entries.reduce((n, [k, v]) => n + k.length + v.length, 0);
+    if (bytes > MAX_IMPORT_FILE_BYTES)
+      throw new ImportError('This file holds more than an MN Bank export can (5 MB). Nothing was imported.');
+    if (new Set(entries.map(([k]) => k)).size !== entries.length)
+      throw new ImportError('The file holds the same record twice. Nothing was imported.');
+    const secretChanges: SecretChange[] = [];
     for (const [key, value] of entries) {
       const k = parseKey(key);
       let record: unknown;
@@ -301,15 +328,112 @@ export class LocalStore {
       if (problem) {
         throw new ImportError(`The file holds a record this page would not write (${problem}). Nothing was imported.`);
       }
+      if (k.kind === 'secret' && !k.scope.global) {
+        const next = r.data.data as { encSecretKey?: unknown; encPublicKey?: unknown };
+        const current = this.get<{ encSecretKey?: unknown }>(key)?.data;
+        if (current && current.encSecretKey !== next.encSecretKey) {
+          secretChanges.push({ key, account: k.scope.account, encPublicKey: String(next.encPublicKey) });
+        }
+      }
     }
-    let replaced = 0;
-    this.markSchema();
-    for (const [key, value] of entries) {
-      if (this.storage.getItem(key) !== null) replaced++;
-      this.storage.setItem(key, value);
+    return { entries, secretChanges };
+  }
+
+  /**
+   * Write a prepared import as ONE change (security review F-B5): every key it replaces is
+   * snapshotted first; if any write fails (a full storage), every key is put back as it was and
+   * nothing is imported. An encryption secret is replaced by a different one only when its
+   * account is in `approvedSecretReplacements`; a pending registration's secret never is.
+   */
+  commitImport(
+    plan: ImportPlan,
+    opts: { approvedSecretReplacements?: ReadonlySet<string> } = {},
+  ): { imported: number; replaced: number } {
+    if (this.readOnly)
+      throw new ImportError('This browser holds data from a newer version of MN Bank; nothing was imported.');
+    for (const c of plan.secretChanges) {
+      if (!c.account) {
+        throw new ImportError(
+          'This file would replace the key of a registration in progress in this browser. Nothing was imported.',
+        );
+      }
+      if (!opts.approvedSecretReplacements?.has(c.account)) {
+        throw new ImportError(
+          `This file would replace the encryption secret of account ${c.account.slice(0, 8)}… with another one whose public key is not the account's on-chain key (or the bank could not be reached to check it). Nothing was imported.`,
+        );
+      }
+    }
+    // Secrets last: everything else is in place before a key changes.
+    const ordered = [...plan.entries].sort(([a], [b]) => Number(isSecretKey(a)) - Number(isSecretKey(b)));
+    const hadSchema = this.storage.getItem(SCHEMA_KEY) !== null;
+    const before = new Map<string, string | null>(ordered.map(([k]) => [k, this.storage.getItem(k)]));
+    const written: string[] = [];
+    try {
+      this.markSchema();
+      for (const [key, value] of ordered) {
+        this.storage.setItem(key, value);
+        written.push(key);
+      }
+    } catch (e) {
+      const undone = this.rollback(written, before, hadSchema);
+      this.emit();
+      const full = isQuotaError(e);
+      if (!undone) {
+        throw new ImportError(
+          `The import failed part-way${full ? ' (this browser’s storage is full)' : ''} and could not be fully undone: up to ${written.length} of ${ordered.length} records may have changed. Export what you have now and reload before trying again.`,
+        );
+      }
+      throw new ImportError(
+        full
+          ? 'This browser has no room for the file, so nothing was imported (everything is as it was). Free some site data, then try again.'
+          : 'The file could not be written, so nothing was imported (everything is as it was).',
+      );
     }
     this.emit();
-    return { imported: entries.length, replaced };
+    const replaced = ordered.filter(([k]) => before.get(k) !== null).length;
+    return { imported: ordered.length, replaced };
+  }
+
+  /** Put every written key back as it was; false if any restore failed. Every written key is
+   *  removed first, so restoring the old values needs no more room than they had before. */
+  private rollback(written: string[], before: ReadonlyMap<string, string | null>, hadSchema: boolean): boolean {
+    let ok = true;
+    for (const k of written) {
+      try {
+        this.storage.removeItem(k);
+      } catch {
+        ok = false;
+      }
+    }
+    for (const k of written) {
+      const v = before.get(k);
+      if (v === null || v === undefined) continue;
+      try {
+        this.storage.setItem(k, v);
+      } catch {
+        ok = false;
+      }
+    }
+    if (!hadSchema && this.rawEntries().length === 0) {
+      try {
+        this.storage.removeItem(SCHEMA_KEY);
+      } catch {
+        ok = false;
+      }
+    }
+    return ok;
+  }
+
+  /**
+   * Import an export file into the connected wallet's data, as one change: `prepareImport`, then
+   * `commitImport`. All or nothing.
+   */
+  importWallet(
+    file: unknown,
+    expected: WalletScope,
+    opts: { approvedSecretReplacements?: ReadonlySet<string> } = {},
+  ): { imported: number; replaced: number } {
+    return this.commitImport(this.prepareImport(file, expected), opts);
   }
 
   /** Remove EVERY key the bank stored in this browser, for every wallet and network. */

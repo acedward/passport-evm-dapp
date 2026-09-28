@@ -490,7 +490,9 @@ Put this where customers read it (the site says the same in its pages):
 - **Clearing the browser, or CLEAR ALL without an export, loses the account for good.** The bank
   cannot recover it: without the secret, the coins cannot be found or spent.
 - **One account per wallet address per browser.** A new browser or computer does not find your
-  account by itself: Import your export there.
+  account by itself: Import your export there. Import takes only an export MN Bank itself made, for
+  the connected wallet, and writes it all or nothing. It never replaces your account's secret key
+  with a different one unless the chain says the new key is your account's.
 - **One live offer at a time.** Any other signed action (a withdrawal, a bridge transfer, a second
   offer) cancels a live offer. The page warns first.
 - **One coin per payment.** The largest amount you can pay or withdraw at once is your largest
