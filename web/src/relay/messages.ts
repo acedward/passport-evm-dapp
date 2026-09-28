@@ -37,6 +37,9 @@ export function relayErrorText(e: {
       return 'The bank is at capacity right now. Nothing was sent; try again in a few minutes.';
     case 'chain-unavailable':
       return 'The bank cannot read Midnight right now. Try again shortly; your records in this browser are safe.';
+    case 'history-too-long':
+      // A known limit of this version (RUNBOOK §12, plan question Q27): retrying does not help.
+      return 'Your account has more history than this version of MN Bank can read (500 or more actions on Midnight), so its balances can no longer be refreshed: they show the last refresh, and new coins will not appear. Nothing is lost: your coins stay on Midnight and your Export keeps the key to them. Keep your Export and ask the bank; a later version reads the account again.';
     case 'bridge-unavailable':
       return 'The bank cannot bridge right now. Your balances are safe; try again later.';
     case 'payload-too-large':

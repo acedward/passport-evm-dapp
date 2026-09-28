@@ -16,6 +16,15 @@ export class IndexerError extends Error {
   override name = 'IndexerError';
 }
 
+/** The account has at least one full indexer page of actions, and the relay does not page yet
+ *  (a known limit, plan question Q27): its history cannot be read in full. */
+export class AccountHistoryTooLongError extends IndexerError {
+  override name = 'AccountHistoryTooLongError';
+  constructor(readonly limit: number) {
+    super(`the account has ${limit} or more actions; paging is not implemented`);
+  }
+}
+
 const ACTIONS_QUERY = `query AccountActions($address: HexEncoded!, $limit: Int) {
   contract(address: $address) {
     actions(limit: $limit) {
@@ -75,9 +84,7 @@ export class IndexerClient {
       block: { height: number } | null;
     }>(ACTIONS_QUERY, { address: account, limit });
     if (!data.contract) return null;
-    if (data.contract.actions.length >= limit) {
-      throw new IndexerError(`the account has ${limit} or more actions; paging is not implemented`);
-    }
+    if (data.contract.actions.length >= limit) throw new AccountHistoryTooLongError(limit);
     const byHash = new Map<string, RawActionTx>();
     for (const a of data.contract.actions) {
       const t = a.transaction;

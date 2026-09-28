@@ -52,6 +52,12 @@ describe('the relay’s refusals, in words', () => {
     expect(t('sponsor-low', { status: 503 })).toMatch(/low on the network-fee funds \(DUST\).*paused new actions/);
     expect(t('sponsor-unavailable', { status: 503 })).toMatch(/still starting up/);
     expect(t('busy', { status: 503 })).toMatch(/at capacity/);
+    // Q27: a known limit, not an outage; it does not say "try again shortly".
+    const history = t('history-too-long', { status: 501 });
+    expect(history).toMatch(/more history than this version of MN Bank can read \(500 or more actions/);
+    expect(history).toMatch(/Nothing is lost/);
+    expect(history).not.toMatch(/try again shortly/i);
+    expect(history).not.toBe(t('chain-unavailable', { status: 503 }));
     expect(t('unauthorised', { status: 401, detail: 'expired' })).toMatch(/older state of your account/);
     expect(t('unauthorised', { status: 401, detail: 'replayed' })).toMatch(/already used/);
     expect(t('unauthorised', { status: 401, detail: 'wrong-signer' })).toMatch(/not from a device of this account/);

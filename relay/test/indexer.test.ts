@@ -1,10 +1,18 @@
 // Plan L-ACC.2/.4: the relay's account reads. The Zswap activity keeps only the account's own
 // leaves (with their exact positions) and spends, once each, and the reads route answers 404 for
-// an unknown account, 501 without a key volume and 503 when the chain cannot be read.
+// an unknown account, 501 without a key volume, 503 when the chain cannot be read, and 501
+// `history-too-long` for an account with a full indexer page of actions (no paging yet, Q27).
 
 import { describe, expect, it } from 'vitest';
 
-import { IndexerClient, zswapActivityOf, type DecodedEvent, type RawActionTx } from '../src/chain/indexer.js';
+import {
+  AccountHistoryTooLongError,
+  IndexerClient,
+  IndexerError,
+  zswapActivityOf,
+  type DecodedEvent,
+  type RawActionTx,
+} from '../src/chain/indexer.js';
 import { accountStateView, inboxPageOf, type ChainReader, type LedgerView } from '../src/chain/reader.js';
 import { harness } from './harness.js';
 
@@ -97,6 +105,28 @@ describe('IndexerClient.accountTransactions', () => {
       new IndexerClient({ indexerUrl: 'http://i', fetchImpl: fakeFetch({}, 502) }).accountTransactions(ME),
     ).rejects.toThrow('502');
   });
+
+  it('refuses a full page of actions with its own error (no paging yet, Q27)', async () => {
+    const actions = Array.from({ length: 3 }, (_, i) => ({
+      transaction: { hash: `t${i}`, block: { height: i }, zswapLedgerEvents: [] },
+    }));
+    const full = new IndexerClient({
+      indexerUrl: 'http://i',
+      maxActions: 3,
+      fetchImpl: fakeFetch({ data: { contract: { actions }, block: { height: 9 } } }),
+    });
+    const e = await full.accountTransactions(ME).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(AccountHistoryTooLongError);
+    expect(e).toBeInstanceOf(IndexerError);
+    expect((e as AccountHistoryTooLongError).limit).toBe(3);
+    // One action fewer than a page is read as usual.
+    const under = new IndexerClient({
+      indexerUrl: 'http://i',
+      maxActions: 4,
+      fetchImpl: fakeFetch({ data: { contract: { actions }, block: { height: 9 } } }),
+    });
+    expect((await under.accountTransactions(ME))?.txs).toHaveLength(3);
+  });
 });
 
 describe('account state and inbox views', () => {
@@ -167,5 +197,20 @@ describe('GET /v1/accounts/:account/*', () => {
   it('says 501 without a key volume', async () => {
     const h = harness();
     expect((await h.app.request(`/v1/accounts/${ME}/zswap`)).status).toBe(501);
+  });
+
+  it('says 501 history-too-long, not "chain unavailable", for an account beyond one indexer page (Q27)', async () => {
+    const h = harness({
+      chain: chain({
+        zswap: async () => {
+          throw new AccountHistoryTooLongError(500);
+        },
+      }),
+    });
+    const res = await h.app.request(`/v1/accounts/${ME}/zswap`);
+    expect(res.status).toBe(501);
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe('history-too-long');
+    expect(body.error.message).toContain('500 or more actions');
   });
 });
