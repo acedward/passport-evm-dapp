@@ -68,7 +68,7 @@ The closer is bounded in three ways:
 ## Relay memory during a proof
 
 The relay sends each proof's prover key to the proof server; a k=18 account key is 544 MB. Up to
-master `a0b760b` it did that through midnight-js's HTTP proof provider, which held about eight copies
+master `f8710eb` it did that through midnight-js's HTTP proof provider, which held about eight copies
 of the key per proof:
 
 - `check` read the key only to send its ZKIR;
@@ -93,7 +93,7 @@ Measured with `relay/src/tools/prover-memory.ts` (`test/memory/README.md`):
 - **Not counted**: the harness holds no sponsor wallet. An idle relay with a synced wallet adds about
   1 to 1.2 GB to every figure below.
 
-| | Before (up to `a0b760b`) | After (P5.1b) |
+| | Before (measured on `a0b760b`) | After (P5.1b) |
 |---|---|---|
 | Before any proof | 242 MB | 231 to 246 MB |
 | Peak during one proof | **4,604 MB** | **374 MB** |

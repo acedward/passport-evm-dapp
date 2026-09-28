@@ -66,7 +66,7 @@ k=18 proof's memory. Keep `RELAY_MEM_LIMIT` at its default, 8g: it is a cap, not
 the relay stays far below it. `test/memory/README.md` has a check you can run on your host, and
 `docs/PERFORMANCE.md` the measurements.
 
-Builds before the relay-memory fix (plan P5.1b; up to master `a0b760b`) held several copies of the
+Builds before the relay-memory fix (plan P5.1b; up to master `f8710eb`) held several copies of the
 prover key per proof and peaked at about 5 to 7 GB. They need the 24 GB sizing and at least 8g: under
 4 GiB, a host without swap can OOM-kill that relay in the middle of a proof, and the customer's job
 is lost (plan question Q25; measured in the live acceptance run).
@@ -568,7 +568,7 @@ The `keys` job re-verifies. If the new version changed a key input (the Passport
 the Signet module, the kept keys), it compiles again first: stop the relay before
 (`docker compose stop relay`), keep about 12 GB of disk free, and run `up keys` attached.
 
-**Upgrading from `a0b760b` or earlier** (before the relay-memory fix, plan P5.1b): the commands
+**Upgrading from `f8710eb` or earlier** (before the relay-memory fix, plan P5.1b): the commands
 above. Only the relay image changes: no setting, no key and no page. A proof then adds about 0.15 GB
 to the relay instead of 3.5 to 5 GB.
 
