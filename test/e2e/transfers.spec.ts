@@ -264,6 +264,9 @@ test.describe('Transfers (mocked relay and MPC)', () => {
     await page.getByTestId('deposit-token').selectOption('stkA');
     await page.getByTestId('deposit-amount').fill('1');
     await page.getByTestId('deposit-continue').click();
+    // The page shows exactly the arguments the wallet will get, derived, not stored (F-B4).
+    await expect(page.getByTestId('funding-token-args')).toContainText(DEPOSIT_ADDRESS);
+    await expect(page.getByTestId('funding-gas-args')).toContainText(DEPOSIT_ADDRESS);
     await page.getByTestId('send-tokens').click();
     await expect(page.getByTestId('tokens-ready')).toBeVisible();
     await page.getByTestId('send-gas').click();
@@ -295,6 +298,31 @@ test.describe('Transfers (mocked relay and MPC)', () => {
       [`mn-bank/v1/stagenet/${wallet.address.toLowerCase()}/${ACCOUNT}/coins`],
     );
     expect(coins).toEqual([expect.objectContaining({ color: WSTKA, value: '1000000', nonce: 'ee'.repeat(32) })]);
+  });
+
+  test('an imported deposit that names a foreign deposit address cannot send anything (F-B4)', async ({ page }) => {
+    const { wallet } = await open(page);
+    await page.getByTestId('deposit-token').selectOption('stkA');
+    await page.getByTestId('deposit-amount').fill('1');
+    await page.getByTestId('deposit-continue').click();
+    await expect(page.getByTestId('funding-token-args')).toBeVisible();
+    // Rewrite the draft as a malicious import would: a foreign deposit address.
+    await page.evaluate((prefix) => {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i)!;
+        if (!k.startsWith(prefix) || !k.includes('/bridge/')) continue;
+        const r = JSON.parse(localStorage.getItem(k)!) as { data: Record<string, unknown> };
+        r.data.depositAddress = '0x000000000000000000000000000000000000bEEF';
+        localStorage.setItem(k, JSON.stringify(r));
+      }
+    }, `mn-bank/v1/stagenet/${wallet.address.toLowerCase()}/`);
+    await page.reload();
+    await page.getByTestId('connect').click();
+    await page.getByTestId('wallet-option').filter({ hasText: 'MN Test Wallet' }).click();
+    await expect(page.getByTestId('deposit-funding-refused')).toContainText("not your account's");
+    await expect(page.getByTestId('send-tokens')).toBeDisabled();
+    await expect(page.getByTestId('send-gas')).toBeDisabled();
+    expect(wallet.calls.filter((c) => c.method === 'eth_sendTransaction')).toHaveLength(0);
   });
 
   test('the preflight refuses a start without the sweep gas, before anything is signed', async ({ page }) => {

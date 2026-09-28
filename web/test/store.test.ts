@@ -17,13 +17,54 @@ const snapshot = () => {
   return out;
 };
 
+const COLOUR = '5e'.repeat(32);
+const DEVICE = ME.evmAddress.toLowerCase();
+/** Records as the page writes them (security review F-B4: Import accepts only these shapes). */
+const accountRecord = (address: string) => ({
+  address,
+  device: DEVICE,
+  network: 'stagenet',
+  vault: 'ee'.repeat(32),
+  createdAt: 1,
+  txs: { waveOne: '00ab', waveTwo: '00cd', activation: '00ef' },
+});
+const coin = (value: string, n: string) => ({
+  nonce: n.repeat(32),
+  color: COLOUR,
+  value,
+  mtIndex: '100',
+  commitment: `c${n}`.repeat(21).slice(0, 64).padEnd(64, '0'),
+  origin: 'inbox',
+  inInbox: true,
+  inboxIndex: '0',
+  spent: false,
+});
+const TRANSFER_ID = '0123456789abcdef';
+const transferRecord = {
+  id: TRANSFER_ID,
+  kind: 'deposit',
+  account: ACC,
+  symbol: 'stkA',
+  midnightName: 'wStkA',
+  erc20: '0x2Ab7BE0769e3BBD5c7d047B422CB383fCC06FB52',
+  colour: COLOUR,
+  decimals: 6,
+  amount: '1000000',
+  depositAddress: '0xEb5A392eeee639C23434C1FA8bccbF6bC730377C',
+  createdAt: 1,
+  updatedAt: 2,
+  state: 'running',
+  jobIds: ['1'.padStart(32, '0')],
+  requestId: 'a1'.repeat(32),
+  stages: [{ stage: 'mpc-signed', at: 3, detail: { evmNonce: '0' } }],
+};
 const seed = (store: LocalStore) => {
   store.put(ME, 'profile', { firstSeen: 1 });
-  store.put(ME, 'account', { address: ACC, device: '0x01' }, { account: ACC });
-  store.put(ME, 'secret', { encSecretKey: 'ff'.repeat(32) }, { account: ACC });
-  store.put(ME, 'coins', [{ value: '60000000' }, { value: '40000000' }], { account: ACC });
-  store.put(ME, 'bridge', { stage: 'mpc' }, { account: ACC, id: 'req-1' });
-  store.put(ME, 'account', { address: ACC2 }, { account: ACC2 });
+  store.put(ME, 'account', accountRecord(ACC), { account: ACC });
+  store.put(ME, 'secret', { encSecretKey: 'ff'.repeat(32), encPublicKey: 'fe'.repeat(32) }, { account: ACC });
+  store.put(ME, 'coins', [coin('60000000', '01'), coin('40000000', '02')], { account: ACC });
+  store.put(ME, 'bridge', transferRecord, { account: ACC, id: TRANSFER_ID });
+  store.put(ME, 'account', accountRecord(ACC2), { account: ACC2 });
   store.put(OTHER, 'profile', { firstSeen: 2 });
   store.put('global', 'settings', { grouping: true });
 };
@@ -122,7 +163,7 @@ describe('schema migrations', () => {
     expect(store.readOnly).toBe(false);
     expect(localStorage.getItem(SCHEMA_KEY)).toBe('2');
     expect(store.get(recordKey(ME, 'coins', { account: ACC }))?.data).toEqual({
-      list: [{ value: '60000000' }, { value: '40000000' }],
+      list: [coin('60000000', '01'), coin('40000000', '02')],
     });
     expect(store.get(recordKey(ME, 'profile'))?.data).toEqual({ firstSeen: 1 });
   });
@@ -143,10 +184,11 @@ describe('schema migrations', () => {
     seed(old);
     const file = old.exportWallet(ME);
     localStorage.clear();
-    const store = new LocalStore(localStorage, { version: 2, migrations: [v2] });
+    // Version 2 brings its own record shapes (here: any), as a real schema change would.
+    const store = new LocalStore(localStorage, { version: 2, migrations: [v2], recordCheck: () => null });
     store.importWallet(file, ME);
     expect(store.get(recordKey(ME, 'coins', { account: ACC }))?.data).toEqual({
-      list: [{ value: '60000000' }, { value: '40000000' }],
+      list: [coin('60000000', '01'), coin('40000000', '02')],
     });
   });
 });
@@ -225,5 +267,55 @@ describe('Export, CLEAR ALL and Import (Q11, SC-005)', () => {
     const newer = { ...file, schemaVersion: 99 };
     expect(() => store.importWallet(newer, ME)).toThrow(/newer version/);
     expect(localStorage.length).toBe(0);
+  });
+
+  // Security review F-B4: Import accepts only records this page writes, field by field.
+  it('refuse a record of the wrong shape for its kind, or one that disagrees with its key', () => {
+    const store = new LocalStore(localStorage);
+    seed(store);
+    const file = store.exportWallet(ME);
+    store.clearAll();
+    const withRecord = (key: string, kind: string, data: unknown) => ({
+      ...file,
+      records: [...file.records, { key, value: { v: 1, kind, updatedAt: 1, data } }],
+    });
+    const bridgeKey = recordKey(ME, 'bridge', { account: ACC, id: TRANSFER_ID });
+    const cases: Array<[unknown, RegExp]> = [
+      // an unknown field
+      [withRecord(bridgeKey, 'bridge', { ...transferRecord, redirectTo: '0x00' }), /not in the shape/],
+      // an ill-typed deposit address, token, amount or colour
+      [withRecord(bridgeKey, 'bridge', { ...transferRecord, depositAddress: 'attacker' }), /not in the shape/],
+      [withRecord(bridgeKey, 'bridge', { ...transferRecord, erc20: 'javascript:alert(1)' }), /not in the shape/],
+      [withRecord(bridgeKey, 'bridge', { ...transferRecord, amount: '-1' }), /not in the shape/],
+      [withRecord(bridgeKey, 'bridge', { ...transferRecord, colour: 'zz' }), /not in the shape/],
+      // filed under another account or id than it names
+      [withRecord(bridgeKey, 'bridge', { ...transferRecord, account: ACC2 }), /does not match its key/],
+      [
+        withRecord(recordKey(ME, 'bridge', { account: ACC, id: 'fedcba9876543210' }), 'bridge', transferRecord),
+        /does not match its key/,
+      ],
+      // an account record for another device, or naming another account than its key
+      [
+        withRecord(recordKey(ME, 'account', { account: ACC }), 'account', {
+          ...accountRecord(ACC),
+          device: `0x${'33'.repeat(20)}`,
+        }),
+        /another device/,
+      ],
+      [withRecord(recordKey(ME, 'account', { account: ACC }), 'account', accountRecord(ACC2)), /another account/],
+      // coins, secrets, offers and jobs of the wrong shape
+      [withRecord(recordKey(ME, 'coins', { account: ACC }), 'coins', [{ value: '1' }]), /not in the shape/],
+      [withRecord(recordKey(ME, 'secret', { account: ACC }), 'secret', { encSecretKey: 'ff' }), /not in the shape/],
+      [withRecord(recordKey(ME, 'offer', { account: ACC, id: 'make-x' }), 'offer', {}), /not in the shape/],
+      [withRecord(recordKey(ME, 'job', { account: ACC, id: 'j' }), 'job', { requestId: 'j' }), /not in the shape/],
+      // a record kind that needs an account, filed without one
+      [withRecord(recordKey(ME, 'coins'), 'coins', []), /not filed under an account/],
+    ];
+    for (const [bad, message] of cases) {
+      expect(() => store.importWallet(bad, ME), JSON.stringify(bad).slice(-160)).toThrow(message);
+    }
+    expect(localStorage.length).toBe(0);
+    // The page's own export still imports.
+    expect(store.importWallet(file, ME)).toEqual({ imported: 6, replaced: 0 });
   });
 });

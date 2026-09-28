@@ -40,6 +40,7 @@ import { readCoins, readRoster, readSecret } from '../src/passport/records.js';
 import type { RelayClient } from '../src/relay/client.js';
 import { recordKey } from '../src/store/schema.js';
 import { LocalStore } from '../src/store/store.js';
+import { expectImportRoundTrip } from './roundtrip.js';
 
 const ACCOUNT = 'ac'.repeat(32);
 const SALT = '5a'.repeat(32);
@@ -170,6 +171,7 @@ describe('openAccount (L-ACC.1)', () => {
     expect(readSecret(e.store, e.scope, null)).toBeNull();
     expect(readRoster(e.store, e.scope, ACCOUNT)).toEqual({ useCounter: '0' });
     expect(JSON.stringify(Object.keys(localStorage))).not.toContain('/job/');
+    expectImportRoundTrip(e.store, e.scope); // F-B4: what the page wrote imports unchanged
   });
 
   it('keeps the key pair for a retry when the relay fails, and reuses it', async () => {
@@ -308,6 +310,7 @@ describe('the inbox walk and the gated calls (L-ACC.2 to L-ACC.5)', () => {
       mtIndex: '300',
       inInbox: false,
     });
+    expectImportRoundTrip(e.store, e.scope);
   });
 
   it('refuses an amount no single coin covers before asking the wallet', async () => {

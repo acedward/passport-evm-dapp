@@ -1,6 +1,7 @@
 // The browser store: every per-user record, in localStorage, with a schema version and
 // migrations, cross-tab change events, and Export / Import / CLEAR ALL (spec FR-003, FR-004).
 
+import { recordDataProblem } from './record-schemas.js';
 import {
   ExportFileSchema,
   EXPORT_FORMAT,
@@ -68,6 +69,9 @@ export interface RecordView {
 export interface StoreOptions {
   version?: number;
   migrations?: readonly Migration[];
+  /** Why an imported record's data is not one this page writes, or null (default: the shapes of
+   *  schema version 1, ./record-schemas.ts; a new schema version brings its own). */
+  recordCheck?: (key: ParsedKey, data: unknown) => string | null;
   now?: () => number;
 }
 
@@ -93,6 +97,7 @@ export class LocalStore {
   /** True when this browser holds data written by a newer version: the page will not change it. */
   readonly readOnly: boolean;
   private readonly migrations: readonly Migration[];
+  private readonly recordCheck: (key: ParsedKey, data: unknown) => string | null;
   private readonly now: () => number;
   private readonly listeners = new Set<() => void>();
 
@@ -102,6 +107,7 @@ export class LocalStore {
   ) {
     this.version = options.version ?? SCHEMA_VERSION;
     this.migrations = options.migrations ?? MIGRATIONS;
+    this.recordCheck = options.recordCheck ?? recordDataProblem;
     this.now = options.now ?? (() => Date.now());
     this.readOnly = !this.openSchema();
   }
@@ -289,6 +295,11 @@ export class LocalStore {
       const r = StoredRecordSchema.safeParse(record);
       if (!k || !inWalletScope(k, s) || !r.success || r.data.kind !== k.kind) {
         throw new ImportError('The file holds a record that does not belong to this wallet. Nothing was imported.');
+      }
+      // Security review F-B4: every record must be one this page writes, field by field.
+      const problem = this.recordCheck(k, r.data.data);
+      if (problem) {
+        throw new ImportError(`The file holds a record this page would not write (${problem}). Nothing was imported.`);
       }
     }
     let replaced = 0;

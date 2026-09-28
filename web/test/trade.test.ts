@@ -31,6 +31,7 @@ import { LocalStore } from '../src/store/store.js';
 import { liveOffer as bridgeSeesLiveOffer } from '../src/bridge/operations.js';
 import { confirmCancelsOffer, guardFor, makeOffer, reconcileOffers, takeOffer } from '../src/trade/operations.js';
 import { readTrades } from '../src/trade/records.js';
+import { expectImportRoundTrip } from './roundtrip.js';
 
 const ACCOUNT = 'ac'.repeat(32);
 const SALT = '5a'.repeat(32);
@@ -226,6 +227,7 @@ describe('make an offer (L-TRD.1)', () => {
     expect(rec).toMatchObject({ role: 'make', status: 'live', summary: 'sell 2.00 wStkA at 1.05' });
     expect(readCoins(e.store, e.scope, ACCOUNT).every((c) => !c.spent)).toBe(true);
     expect(readRoster(e.store, e.scope, ACCOUNT)).toEqual({ useCounter: '0' });
+    expectImportRoundTrip(e.store, e.scope);
   });
 
   it('refuses a second offer while one is live (Q9), without asking the wallet', async () => {
@@ -323,6 +325,7 @@ describe('take an offer (L-TRD.2)', () => {
     });
     expect(rec).toMatchObject({ role: 'take', status: 'filled', settledTx: 'aa'.repeat(32), side: 'buy' });
     expect(readRoster(e.store, e.scope, ACCOUNT)).toEqual({ useCounter: '3' });
+    expectImportRoundTrip(e.store, e.scope); // F-B4: what the page wrote imports unchanged
   });
 
   it('a take cancels this account’s live offer', async () => {
