@@ -116,11 +116,24 @@ export const WithdrawPayloadSchema = z
   .strict();
 export type WithdrawPayload = z.infer<typeof WithdrawPayloadSchema>;
 
+/**
+ * A single-use APPEND ENTITLEMENT (security review F-B3): the bank sponsors an `append-inbox`
+ * only for a coin it saw created without a correct inbox entry (a withdrawal's change, a bridge
+ * withdrawal's change, a bridge coin whose entry does not describe it). The relay issues it in
+ * that operation's result, the browser keeps it with the coin, and sends it back to file the
+ * entry: `ae1.<account>.<operation id>.<expiry>.<relay MAC>`, all lowercase hex / decimal.
+ */
+export const APPEND_ENTITLEMENT_PATTERN = /^ae1\.[0-9a-f]{64}\.[0-9a-f]{64}\.[0-9]{1,12}\.[0-9a-f]{64}$/;
+export const AppendEntitlementSchema = z.string().regex(APPEND_ENTITLEMENT_PATTERN);
+
 /** `append_inbox_with_evm`: file one 192-byte inbox entry (Q13: a withdrawal's change). */
 export const AppendInboxPayloadSchema = z
   .object({
     entry: hex(192),
     authNonce: decimal,
+    /** The entitlement the bank issued for this coin (F-B3). Not part of the signed challenge (the
+     *  contract's typed data is fixed); the relay refuses an append without a valid one. */
+    entitlement: AppendEntitlementSchema.optional(),
   })
   .strict();
 export type AppendInboxPayload = z.infer<typeof AppendInboxPayloadSchema>;
@@ -139,6 +152,8 @@ export interface WithdrawResult {
   txId: string;
   /** The change coin the circuit returned (it has no inbox entry yet: Q13). */
   change: { nonce: string; color: string; value: string } | null;
+  /** The single-use entitlement to file the change's inbox entry (F-B3), when there is change. */
+  changeEntitlement?: string;
 }
 
 export interface AppendInboxResult {

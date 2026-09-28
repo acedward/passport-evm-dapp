@@ -250,7 +250,12 @@ describe('the inbox walk and the gated calls (L-ACC.2 to L-ACC.5)', () => {
   it('withdraws from the smallest covering coin with ONE signature, and keeps the change', async () => {
     const { w, relay, e, calls } = await fundedAccount();
     await syncAccount(e, ACCOUNT);
-    relay.results.withdraw = { txId: 'wd1', change: { nonce: '09'.repeat(32), color: COLOUR, value: '10000000' } };
+    const changeEntitlement = `ae1.${ACCOUNT}.${'0e'.repeat(32)}.99999999999.${'ac'.repeat(32)}`;
+    relay.results.withdraw = {
+      txId: 'wd1',
+      change: { nonce: '09'.repeat(32), color: COLOUR, value: '10000000' },
+      changeEntitlement,
+    };
     const out = await withdrawToWallet(e, ACCOUNT, {
       color: COLOUR,
       amount: 30_000_000n,
@@ -276,6 +281,8 @@ describe('the inbox walk and the gated calls (L-ACC.2 to L-ACC.5)', () => {
     expect(TypedDataEncoder.hash(call.typedData.domain, types, call.typedData.message)).toBe(call.digestHex);
 
     expect(out.change).toMatchObject({ value: '10000000', inInbox: false, origin: 'change', mtIndex: null });
+    // The bank's entitlement to file the change (security review F-B3) is kept with it.
+    expect(out.change?.appendEntitlement).toBe(changeEntitlement);
     const coins = readCoins(e.store, e.scope, ACCOUNT);
     expect(coins.find((c) => c.value === '40000000')).toMatchObject({ spent: true, spentTx: 'wd1' });
     expect(coins.find((c) => c.value === '10000000')).toMatchObject({ inInbox: false });
@@ -317,14 +324,25 @@ describe('the inbox walk and the gated calls (L-ACC.2 to L-ACC.5)', () => {
     relay.results['append-inbox'] = { txId: 'ai1' };
     const change = { nonce: '09'.repeat(32), color: COLOUR, value: '10000000' };
     const { localCoin } = await import('@mnbank/core');
-    const r = await secureChange(e, ACCOUNT, localCoin(change, ACCOUNT));
+    const appendEntitlement = `ae1.${ACCOUNT}.${'0e'.repeat(32)}.99999999999.${'ac'.repeat(32)}`;
+    const r = await secureChange(e, ACCOUNT, { ...localCoin(change, ACCOUNT), appendEntitlement });
     expect(r.txId).toBe('ai1');
     expect(calls).toEqual(['eth_signTypedData_v4']);
-    const payload = relay.submitted[0]!.request.payload as { entry: string };
+    const payload = relay.submitted[0]!.request.payload as { entry: string; entitlement?: string };
+    expect(payload.entitlement).toBe(appendEntitlement); // security review F-B3
     const opened = await openEntryPortable(sk, hexToBytes(payload.entry, 192));
     expect(
       opened && { nonce: bytesToHex(opened.nonce), color: bytesToHex(opened.color), value: opened.value.toString() },
     ).toEqual(change);
     expect(recordKey(e.scope, 'job', { account: ACCOUNT, id: '1'.padStart(32, '0') })).toBeTruthy();
+  });
+
+  it('says a coin the bank gave no entitlement for cannot be secured, before asking the wallet (F-B3)', async () => {
+    const { relay, e, calls } = await fundedAccount();
+    const { localCoin } = await import('@mnbank/core');
+    const coin = localCoin({ nonce: '09'.repeat(32), color: COLOUR, value: '10000000' }, ACCOUNT);
+    await expect(secureChange(e, ACCOUNT, coin)).rejects.toThrow(/no record of this coin as change/);
+    expect(calls).toEqual([]);
+    expect(relay.submitted).toEqual([]);
   });
 });

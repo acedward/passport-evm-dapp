@@ -371,6 +371,7 @@ export function applyJob(env: BridgeEnv, rec: TransferRecord, job: JobView): Tra
     next.change = {
       coin: { nonce: started.changeNonce, color: started.changeColour, value: started.changeValue },
       secured: false,
+      ...(started.changeEntitlement ? { entitlement: started.changeEntitlement } : {}),
     };
   }
   if (job.state === 'succeeded') {
@@ -547,10 +548,19 @@ export function applyCoins(env: BridgeEnv, rec: TransferRecord): void {
       : c,
   );
   if (r.coin && !have.has(key(r.coin))) {
-    next.push({ ...localCoin(r.coin, rec.account, 'inbox', r.settleTx), inInbox: r.entryMatchesCoin });
+    next.push({
+      ...localCoin(r.coin, rec.account, 'inbox', r.settleTx),
+      inInbox: r.entryMatchesCoin,
+      ...(r.coinEntitlement ? { appendEntitlement: r.coinEntitlement } : {}),
+    });
   }
   const change = r.change ?? rec.change?.coin ?? null;
-  if (change && !have.has(key(change))) next.push(localCoin(change, rec.account, 'change', r.startTx ?? undefined));
+  const changeEntitlement = r.changeEntitlement ?? rec.change?.entitlement;
+  if (change && !have.has(key(change)))
+    next.push({
+      ...localCoin(change, rec.account, 'change', r.startTx ?? undefined),
+      ...(changeEntitlement ? { appendEntitlement: changeEntitlement } : {}),
+    });
   env.store.put(env.scope, 'coins', next, { account: rec.account });
 }
 
@@ -569,10 +579,12 @@ export async function secureTransferChange(env: BridgeEnv, recIn: TransferRecord
     });
   }
   await syncAccount(env, rec.account);
-  const coin =
+  const known =
     readCoins(env.store, env.scope, rec.account).find(
       (c) => c.commitment === contractCoinCommitment(change.coin, rec.account),
     ) ?? localCoin(change.coin, rec.account, 'change');
+  const entitlement = known.appendEntitlement ?? change.entitlement ?? rec.result?.changeEntitlement;
+  const coin = entitlement ? { ...known, appendEntitlement: entitlement } : known;
   if (coin.inInbox) {
     return writeTransfer(env.store, env.scope, { ...rec, change: { ...change, secured: true } });
   }

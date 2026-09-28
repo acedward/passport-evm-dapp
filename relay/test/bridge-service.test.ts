@@ -16,7 +16,7 @@ import {
 import { BridgeService, type VerifiedStart } from '../src/bridge/service.js';
 import { JobQueue } from '../src/queue/jobs.js';
 import { COLOUR_A, COLOUR_B, FakeBridge, Gate, STKA, STKB, VAULT, VAULT_EVM } from './bridge-fake.js';
-import { silentLog } from './harness.js';
+import { silentLog, testEntitlements } from './harness.js';
 
 const ACC1 = '1a'.repeat(32);
 const ACC2 = '2b'.repeat(32);
@@ -75,6 +75,7 @@ function setup() {
   const log = silentLog();
   const queue = new JobQueue({ ttlSeconds: 600, maxJobs: 100, log });
   const released: string[] = [];
+  const entitlements = testEntitlements();
   const verify = async <P>(raw: unknown): Promise<VerifiedStart<P>> => {
     const { account, digest, ...payload } = raw as Record<string, unknown>;
     return { account: String(account), payload: payload as P, auth: AUTH, digestHex: String(digest ?? '0xd') };
@@ -87,6 +88,7 @@ function setup() {
     vaultAddress: VAULT,
     verifyStart: { deposit: verify, withdraw: verify },
     releaseDigest: (d) => released.push(d),
+    issueEntitlement: (account, source) => entitlements.issue(account, source),
     log,
   });
   const deposit = (account: string, p: Partial<BridgeDepositPayload> = {}, digest = `0xdep${account.slice(0, 4)}`) =>
@@ -138,7 +140,7 @@ function setup() {
     fake.setEth(VAULT_EVM, eth);
     fake.setErc20(STKA, VAULT_EVM, amount);
   };
-  return { fake, queue, svc, released, deposit, withdraw, resume, fundDeposit, fundVault };
+  return { fake, queue, svc, released, deposit, withdraw, resume, fundDeposit, fundVault, entitlements };
 }
 
 const stages = (j: JobView | undefined) => j?.stages.map((s) => s.stage) ?? [];
@@ -396,6 +398,22 @@ describe('bridge withdrawal', () => {
       coin: null,
       change: { color: COLOUR_A, value: '400000' },
     });
+    // Security review F-B3: the change's entitlement, in the start stage (so a page that loses the
+    // job still has it) and in the result; valid for this account only.
+    const token = detail(done, 'started')?.changeEntitlement;
+    expect(token).toMatch(/^ae1\./);
+    expect((done?.result as { changeEntitlement?: string }).changeEntitlement).toBe(token);
+    expect(t.entitlements.verify(token, ACC1)).toMatchObject({ ok: true });
+    expect(t.entitlements.verify(token, '99'.repeat(32))).toMatchObject({ ok: false });
+  });
+
+  it('issues no entitlement for a withdrawal of a whole coin (no change)', async () => {
+    const t = setup();
+    t.fundVault();
+    const done = await t.queue.settled(t.withdraw(ACC1).requestId);
+    expect(done?.state).toBe('succeeded');
+    expect(detail(done, 'started')?.changeEntitlement).toBeUndefined();
+    expect((done?.result as { changeEntitlement?: string }).changeEntitlement).toBeUndefined();
   });
 
   it('refuses before signing is spent when the vault account lacks gas, naming the shortfall', async () => {

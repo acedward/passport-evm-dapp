@@ -13,7 +13,7 @@ import { passportCallAuthoriser } from '../src/auth/passport-call.js';
 import { DigestReplayGuard } from '../src/auth/verifiers.js';
 import { checkGatedCall } from '../src/passport/gated-verify.js';
 import type { AccountLedger, PassportRuntime } from '../src/passport/runtime.js';
-import { FakeSponsor, harness, post, silentLog } from './harness.js';
+import { FakeSponsor, harness, post, silentLog, testEntitlements } from './harness.js';
 
 const ACCOUNT = '5e'.repeat(32);
 const SALT = '9a'.repeat(32);
@@ -182,6 +182,7 @@ describe('the passport-call routes (withdraw, append-inbox)', () => {
       vaultAddress: 'ee'.repeat(32),
       chainId: 11155111,
       replay,
+      entitlements: testEntitlements(),
       log: silentLog(),
     });
     return {
@@ -225,6 +226,7 @@ describe('the passport-call routes (withdraw, append-inbox)', () => {
       vaultAddress: 'ee'.repeat(32),
       chainId: 11155111,
       replay,
+      entitlements: testEntitlements(),
       log: silentLog(),
     });
     const h = harness({ catalogue, passportCall: passportCallAuthoriser(() => rt, replay) });
@@ -239,6 +241,30 @@ describe('the passport-call routes (withdraw, append-inbox)', () => {
     expect(done?.state).toBe('failed');
     expect(done?.error?.code).toBe('internal-error'); // no internals leak
     expect((await post(h, 'withdraw', body)).status).toBe(202);
+  });
+
+  it('an append whose job fails gives its entitlement back, so the customer can retry (F-B3)', async () => {
+    const w = Wallet.createRandom();
+    const rt = fakeRuntime({ owner: w.address });
+    const replay = new DigestReplayGuard(600);
+    const entitlements = testEntitlements();
+    const catalogue = accountCatalogue({
+      runtime: () => rt,
+      sponsor: new FakeSponsor(), // the fake runtime cannot prove: the job fails at once
+      vaultAddress: 'ee'.repeat(32),
+      chainId: 11155111,
+      replay,
+      entitlements,
+      log: silentLog(),
+    });
+    const h = harness({ catalogue, passportCall: passportCallAuthoriser(() => rt, replay) });
+    const token = entitlements.issue(ACCOUNT, 'withdraw:tx-9');
+    const payload: AppendInboxPayload = { entry: 'ab'.repeat(192), authNonce: '3', entitlement: token };
+    const { signature } = await sign(w, payload);
+    const body = { account: ACCOUNT, payload, passportAuth: { owner: w.address, signature, useCounter: '0' } };
+    const first = (await (await post(h, 'append-inbox', body)).json()) as { job: { requestId: string } };
+    expect((await h.queue.settled(first.job.requestId))?.state).toBe('failed');
+    expect((await post(h, 'append-inbox', body)).status).toBe(202);
   });
 
   it('refuses a withdraw whose body is not a withdraw', async () => {

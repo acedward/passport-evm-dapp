@@ -56,7 +56,7 @@ import { ProofServerClient } from '../src/prover/client.js';
 import { JobQueue } from '../src/queue/jobs.js';
 import type { SponsorStatus } from '../src/sponsor/session.js';
 import { COLOUR_A, FakeBridge, STKA, VAULT } from './bridge-fake.js';
-import { FakeSponsor, LOCAL_TOKENS, silentLog } from './harness.js';
+import { FakeSponsor, LOCAL_TOKENS, silentLog, testEntitlements } from './harness.js';
 
 const ACCOUNT = '5e'.repeat(32);
 const SALT = '9a'.repeat(32);
@@ -128,7 +128,9 @@ const tokens = registryFromConfig('undeployed', {
 });
 
 /** The relay as main.ts wires it, with fakes at the edges (runtime, sponsor, bridge backend). */
-function productionRelay(opts: { env?: Record<string, string>; sponsor?: CountingSponsor } = {}) {
+function productionRelay(
+  opts: { env?: Record<string, string>; sponsor?: CountingSponsor; appendsPerDay?: number } = {},
+) {
   const device = Wallet.createRandom();
   const config = loadConfig({ RELAY_NETWORK: 'undeployed', TOKENS_FILE: '/t', ...opts.env }, () =>
     JSON.stringify(LOCAL_TOKENS),
@@ -140,6 +142,7 @@ function productionRelay(opts: { env?: Record<string, string>; sponsor?: Countin
   const nonces = new NonceStore(config.limits.nonceTtlSeconds, config.limits.maxNonces);
   const queue = new JobQueue({ ttlSeconds: config.limits.jobTtlSeconds, maxJobs: config.limits.maxJobs, log });
   const fake = new FakeBridge();
+  const entitlements = testEntitlements({ maxPerAccountPerDay: opts.appendsPerDay ?? 20 });
   const bridge = new BridgeService({
     backend: () => fake,
     laneLoad: (lane, account) => queue.laneLoad(lane, account),
@@ -153,7 +156,15 @@ function productionRelay(opts: { env?: Record<string, string>; sponsor?: Countin
   });
   const catalogue = withTrade(
     withBridge(
-      accountCatalogue({ runtime: () => rt, sponsor, vaultAddress: VAULT, chainId: 11155111, replay, log }),
+      accountCatalogue({
+        runtime: () => rt,
+        sponsor,
+        vaultAddress: VAULT,
+        chainId: 11155111,
+        replay,
+        entitlements,
+        log,
+      }),
       bridge,
     ),
     { runtime: () => rt, sponsor, kernelUrl: 'http://kernel.test', batcherUrl: 'http://batcher.test', replay, log },
@@ -193,6 +204,7 @@ function productionRelay(opts: { env?: Record<string, string>; sponsor?: Countin
     nonces,
     log,
     catalogue,
+    entitlements,
     queued: () => queue.stats().jobs - HELD,
   };
 }
@@ -217,7 +229,7 @@ function payloadFor(action: RelayActionName, n = 0, authNonce = AUTH_NONCE): Rec
         authNonce: a,
       } satisfies WithdrawPayload;
     case 'append-inbox':
-      return { entry: (n % 2 ? 'ce' : 'cd').repeat(192), authNonce: a } satisfies AppendInboxPayload;
+      return { entry: (0xcd + (n % 16)).toString(16).repeat(192), authNonce: a } satisfies AppendInboxPayload;
     case 'bridge-deposit':
       return { erc20: STKA, amount, evm, authNonce: a } satisfies BridgeDepositPayload;
     case 'bridge-withdraw':
@@ -284,6 +296,8 @@ interface Tamper {
   /** relay-action: the expiry. */
   expiry?: number;
   n?: number;
+  /** append-inbox: the entitlement sent (default: a fresh valid one; null: none). */
+  entitlement?: string | null;
 }
 
 /** A body for `action`, signed as the route requires (or broken as `t` says). */
@@ -310,6 +324,9 @@ async function body(r: Relay, action: RelayActionName, t: Tamper = {}) {
   }
   const authNonce = typeof t.nonce === 'bigint' ? t.nonce : AUTH_NONCE;
   const payload = payloadFor(action, t.n, authNonce);
+  // An append is sponsored only against the bank's entitlement for a change (F-B3); it is not signed.
+  if (action === 'append-inbox' && t.entitlement !== null)
+    payload.entitlement = t.entitlement ?? r.entitlements.issue(ACCOUNT, `withdraw:test-${t.n ?? 0}`);
   const signature = await signPassport(action, payload, signer, authNonce);
   return { account, payload, passportAuth: { owner: t.owner ?? signer.address, signature, useCounter: '0' } };
 }
@@ -441,6 +458,68 @@ describe.each(RELAY_ACTIONS)('POST /v1/actions/%s (production catalogue)', (acti
     expect(e.error.code).toBe('sponsor-low');
     sponsor.current = { ...sponsor.current, dustSpecks: 10n ** 20n };
     expect((await post(r, action, b)).status).toBe(202); // the same authorisation still works
+  });
+});
+
+describe('append-inbox entitlements (security review F-B3)', () => {
+  const code = async (res: Response) => ((await res.json()) as { error: { code: string } }).error.code;
+
+  it('refuses an append without a valid entitlement before any proof or spend', async () => {
+    const r = productionRelay();
+    // none
+    let e = await refused(r, await post(r, 'append-inbox', await body(r, 'append-inbox', { entitlement: null })), 403);
+    expect(e.error.code).toBe('no-entitlement');
+    // forged: right shape, wrong MAC
+    const forged = r.entitlements.issue(ACCOUNT, 'withdraw:x').replace(/[0-9a-f]{64}$/, '0'.repeat(64));
+    e = await refused(
+      r,
+      await post(r, 'append-inbox', await body(r, 'append-inbox', { entitlement: forged, n: 1 })),
+      403,
+    );
+    expect(e.error.code).toBe('no-entitlement');
+    // another account's
+    const theirs = r.entitlements.issue('77'.repeat(32), 'withdraw:y');
+    e = await refused(
+      r,
+      await post(r, 'append-inbox', await body(r, 'append-inbox', { entitlement: theirs, n: 2 })),
+      403,
+    );
+    expect((e.error as { message?: string }).message).toContain('another account');
+    // issued by another relay (another key)
+    const other = testEntitlements({ key: new Uint8Array(32).fill(9) }).issue(ACCOUNT, 'withdraw:z');
+    e = await refused(
+      r,
+      await post(r, 'append-inbox', await body(r, 'append-inbox', { entitlement: other, n: 3 })),
+      403,
+    );
+    expect(e.error.code).toBe('no-entitlement');
+    expect(r.rt.reads).toBeGreaterThan(0); // the signature was checked; only then the entitlement
+  });
+
+  it('accepts a valid entitlement once: a second append with it is refused', async () => {
+    const r = productionRelay();
+    const token = r.entitlements.issue(ACCOUNT, 'withdraw:tx-1');
+    expect((await post(r, 'append-inbox', await body(r, 'append-inbox', { entitlement: token, n: 0 }))).status).toBe(
+      202,
+    );
+    // Another entry (a new signature), the same entitlement: refused while the first is queued …
+    const again = await post(r, 'append-inbox', await body(r, 'append-inbox', { entitlement: token, n: 1 }));
+    expect(again.status).toBe(403);
+    expect(await code(again)).toBe('no-entitlement');
+    // … and for good once the first landed.
+    r.entitlements.spend(token);
+    const later = await post(r, 'append-inbox', await body(r, 'append-inbox', { entitlement: token, n: 2 }));
+    expect(later.status).toBe(403);
+    expect(r.queued()).toBe(1);
+  });
+
+  it('caps appends per account per day as a backstop', async () => {
+    const r = productionRelay({ appendsPerDay: 2 });
+    const statuses: number[] = [];
+    for (let n = 0; n < 3; n++)
+      statuses.push((await post(r, 'append-inbox', await body(r, 'append-inbox', { n }))).status);
+    expect(statuses).toEqual([202, 202, 429]);
+    expect(r.queued()).toBe(2);
   });
 });
 

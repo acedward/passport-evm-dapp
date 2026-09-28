@@ -52,7 +52,14 @@ export interface TransferRecord {
   /** The finished transfer's coins are in the coin list. */
   applied?: boolean;
   /** A withdrawal's change (192 zero bytes in its inbox entry, Q13): re-filed with one more signature. */
-  change?: { coin: CoinInfo; secured: boolean; secureTx?: string; deferredReason?: string };
+  change?: {
+    coin: CoinInfo;
+    secured: boolean;
+    secureTx?: string;
+    deferredReason?: string;
+    /** The bank's single-use entitlement to file the change's entry (security review F-B3). */
+    entitlement?: string;
+  };
   /** When this page last asked whether the bank closed the request (a transfer to resume, P4-A). */
   closedCheckAt?: number;
 }

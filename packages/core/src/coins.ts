@@ -122,6 +122,8 @@ export interface StoredCoin extends CoinInfo {
   /** Spent, from the ledger's nullifiers; kept for the record until pruned. */
   spent: boolean;
   spentTx?: string;
+  /** For a coin without an inbox entry: the bank's single-use entitlement to file one (F-B3). */
+  appendEntitlement?: string;
 }
 
 export interface ReconcileInput {

@@ -63,6 +63,7 @@ import {
 } from '@mnbank/core/passport';
 
 import { registerExecutor } from '../../../relay/src/actions/account-actions.js';
+import { AppendEntitlements, entitlementKey } from '../../../relay/src/actions/entitlements.js';
 import { passportCallAuthoriser } from '../../../relay/src/auth/passport-call.js';
 import { DigestReplayGuard } from '../../../relay/src/auth/verifiers.js';
 import { IndexerClient, ledgerEventDecoder, zswapActivityOf } from '../../../relay/src/chain/indexer.js';
@@ -466,6 +467,13 @@ async function ensureAccounts(state: TrdState, which: 'A' | 'B'): Promise<void> 
       vaultAddress: NET.bridge.vaultAddress,
       chainId: NET.evm.chainId,
       replay: new DigestReplayGuard(3600),
+      // Registration issues no append entitlement (security review F-B3); the executor needs the store.
+      entitlements: new AppendEntitlements({
+        key: entitlementKey(null),
+        network: NET.name,
+        ttlSeconds: 3600,
+        maxPerAccountPerDay: 1,
+      }),
       log,
     });
     const result: any = await exec(

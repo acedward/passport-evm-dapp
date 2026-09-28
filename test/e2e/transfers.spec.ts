@@ -23,6 +23,8 @@ const VAULT_EVM = '0x648216975e722494bFF92E88FFc68C8F8d438FaA';
 const STKA = '0x2Ab7BE0769e3BBD5c7d047B422CB383fCC06FB52';
 const WSTKA = '5eb2a3cebb2ebe7ba910c78f62c9e28e0d74acbd00c810730def3578860e6a02';
 const REQUEST = 'a1'.repeat(32);
+/** The relay's single-use entitlement to file a change's inbox entry (security review F-B3). */
+const CHANGE_ENTITLEMENT = `ae1.${ACCOUNT}.${'0e'.repeat(32)}.99999999999.${'ac'.repeat(32)}`;
 const CORS = {
   'access-control-allow-origin': '*',
   'access-control-allow-headers': 'content-type',
@@ -87,7 +89,14 @@ class MockRelay {
                 txHash: 'f0'.repeat(32),
                 requestId: REQUEST,
                 startedAtMs: String(Date.now()),
-                ...(change ? { changeNonce: change.nonce, changeColour: change.color, changeValue: change.value } : {}),
+                ...(change
+                  ? {
+                      changeNonce: change.nonce,
+                      changeColour: change.color,
+                      changeValue: change.value,
+                      changeEntitlement: CHANGE_ENTITLEMENT,
+                    }
+                  : {}),
               },
             },
           ];
@@ -349,6 +358,8 @@ test.describe('Transfers (mocked relay and MPC)', () => {
     const card = page.locator('[data-testid=transfer][data-kind=withdraw]').first();
     await expect(card.getByTestId('transfer-change-secured')).toBeVisible({ timeout: 60_000 });
     expect(relay.submitted.map((s) => s.action)).toEqual(['bridge-withdraw', 'append-inbox']);
+    // The append carries the bank's single-use entitlement for this change (security review F-B3).
+    expect((relay.submitted[1]!.body.payload as { entitlement?: string }).entitlement).toBe(CHANGE_ENTITLEMENT);
     expect(relay.submitted[0]!.body.payload).toMatchObject({
       amount: '600000',
       dest: wallet.address,

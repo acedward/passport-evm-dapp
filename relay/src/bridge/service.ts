@@ -103,6 +103,9 @@ export interface BridgeServiceDeps {
   releaseDigest: (digestHex: string) => void;
   /** Whether `signer` is a live device of `account` (a resume spends DUST; only owners may ask). */
   isDevice?: (account: string, signer: string) => Promise<boolean>;
+  /** Issue the single-use entitlement to file the inbox entry of a coin this relay created without
+   *  a correct one (security review F-B3; ../actions/entitlements.ts). */
+  issueEntitlement?: (account: string, source: string) => string;
   log: Logger;
   now?: () => number;
   /** How long a finished request's outcome is remembered for GET /v1/bridge/closed (ms). */
@@ -141,6 +144,8 @@ interface DriveInput {
   startedAtMs: number;
   startTx: string | null;
   change: BridgeResult['change'];
+  /** The entitlement to file the change's inbox entry (F-B3), issued when the start landed. */
+  changeEntitlement?: string;
   laneKey: string | null;
   resumed: boolean;
   closedBy: 'owner' | 'relay';
@@ -499,6 +504,10 @@ export class BridgeService {
       const requestId = await this.matchRequest(be, 'withdraw', before.ids, be.vaultPathHex());
       const facts = await be.txFacts(start.txId).catch(() => null);
       const startedAtMs = facts?.blockMs ?? this.now();
+      // The change's inbox entry is 192 zero bytes: the bank will pay for filing ONE real one (F-B3).
+      const changeEntitlement = start.change
+        ? this.deps.issueEntitlement?.(account, `bridge-withdraw:${start.txId}`)
+        : undefined;
       ctx.stage('started', {
         tx: start.txId,
         ...(facts?.hash ? { txHash: facts.hash } : {}),
@@ -512,6 +521,7 @@ export class BridgeService {
         ...(start.change
           ? { changeValue: start.change.value, changeNonce: start.change.nonce, changeColour: start.change.color }
           : {}),
+        ...(changeEntitlement ? { changeEntitlement } : {}),
       });
       return await this.finish(be, ctx, {
         kind: 'withdraw',
@@ -520,6 +530,7 @@ export class BridgeService {
         startedAtMs,
         startTx: start.txId,
         change: start.change,
+        ...(changeEntitlement ? { changeEntitlement } : {}),
         laneKey,
         resumed: false,
         closedBy: 'owner',
@@ -782,6 +793,11 @@ export class BridgeService {
       coin: settle.coin,
       change: r.change,
       entryMatchesCoin: settle.entryMatchesCoin,
+      ...(r.changeEntitlement ? { changeEntitlement: r.changeEntitlement } : {}),
+      // A minted coin whose inbox entry does not describe it: the bank pays for filing one (F-B3).
+      ...(settle.coin && !settle.entryMatchesCoin && this.deps.issueEntitlement
+        ? { coinEntitlement: this.deps.issueEntitlement(r.account, `bridge-settle:${settle.txId}`) }
+        : {}),
       closedBy: r.closedBy,
     };
   }

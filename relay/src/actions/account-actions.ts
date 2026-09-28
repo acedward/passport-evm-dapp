@@ -15,6 +15,7 @@ import {
 } from '@mnbank/core';
 
 import type { DigestReplayGuard } from '../auth/verifiers.js';
+import type { AppendEntitlements } from './entitlements.js';
 import type { Logger } from '../log.js';
 import { checkGatedCall, type GatedAction } from '../passport/gated-verify.js';
 import { MemoryPrivateStateProvider } from '../passport/private-state.js';
@@ -31,6 +32,8 @@ export interface AccountActionDeps {
   vaultAddress: string;
   chainId: number;
   replay: DigestReplayGuard;
+  /** Issues and checks the single-use entitlements `append-inbox` needs (security review F-B3). */
+  entitlements: AppendEntitlements;
   log: Logger;
 }
 
@@ -263,6 +266,10 @@ export function withdrawExecutor(deps: AccountActionDeps): JobExecutor {
               change: change
                 ? { nonce: hex(change.nonce), color: hex(change.color), value: change.value.toString(10) }
                 : null,
+              // The change has no inbox entry: the bank will pay for filing ONE (F-B3).
+              ...(change
+                ? { changeEntitlement: deps.entitlements.issue(check.account, `withdraw:${String(out.txId)}`) }
+                : {}),
             };
             return result as unknown as Record<string, unknown>;
           } finally {
@@ -275,33 +282,49 @@ export function withdrawExecutor(deps: AccountActionDeps): JobExecutor {
 }
 
 /** `append_inbox_with_evm`: file one 192-byte entry (Q13: a withdrawal's change, sealed by the
- *  browser to the account's own public key). */
+ *  browser to the account's own public key), only against the single-use entitlement the bank
+ *  issued for that change (security review F-B3): checked at admission and again here; spent when
+ *  the append lands, released when it fails. */
 export function appendInboxExecutor(deps: AccountActionDeps): JobExecutor {
   return async (raw, ctx) => {
-    const { rt, check } = await recheck(deps, 'append-inbox', raw, ctx);
-    const p = check.payload;
-    return runGated(deps, check.digestHex, () =>
-      ctx.prove(() =>
-        deps.sponsor.withWallet(async (w) => {
-          const privateState = new MemoryPrivateStateProvider();
-          try {
-            const providers = await rt.providers(w as SponsorWalletHandle, privateState);
-            const custody = await rt.client.account.CustodyAccount.connect(
-              providers,
-              rt.compiledAccount(),
-              check.account,
-              rt.client.witnesses.emptyCoinStore(),
-            );
-            ctx.stage('proving', { circuit: 'append_inbox_with_evm' });
-            const out = await custody.appendInboxWithAuth(unhex(p.entry), check.auth);
-            ctx.stage('submitted', { tx: String(out.txId) });
-            const result: AppendInboxResult = { txId: String(out.txId) };
-            return result as unknown as Record<string, unknown>;
-          } finally {
-            privateState.wipe();
-          }
-        }),
-      ),
-    );
+    const token = (raw as { entitlement?: unknown } | null)?.entitlement;
+    try {
+      const out = await appendInbox(deps, raw, ctx);
+      deps.entitlements.spend(token);
+      return out;
+    } catch (e) {
+      deps.entitlements.release(token);
+      throw e;
+    }
   };
+}
+
+async function appendInbox(deps: AccountActionDeps, raw: unknown, ctx: JobContext): Promise<Record<string, unknown>> {
+  const { rt, check } = await recheck(deps, 'append-inbox', raw, ctx);
+  const p = check.payload;
+  const ent = deps.entitlements.verify(p.entitlement, check.account);
+  if (!ent.ok) throw new PublicError('no-entitlement', ent.reason);
+  return runGated(deps, check.digestHex, () =>
+    ctx.prove(() =>
+      deps.sponsor.withWallet(async (w) => {
+        const privateState = new MemoryPrivateStateProvider();
+        try {
+          const providers = await rt.providers(w as SponsorWalletHandle, privateState);
+          const custody = await rt.client.account.CustodyAccount.connect(
+            providers,
+            rt.compiledAccount(),
+            check.account,
+            rt.client.witnesses.emptyCoinStore(),
+          );
+          ctx.stage('proving', { circuit: 'append_inbox_with_evm' });
+          const out = await custody.appendInboxWithAuth(unhex(p.entry), check.auth);
+          ctx.stage('submitted', { tx: String(out.txId) });
+          const result: AppendInboxResult = { txId: String(out.txId) };
+          return result as unknown as Record<string, unknown>;
+        } finally {
+          privateState.wipe();
+        }
+      }),
+    ),
+  );
 }

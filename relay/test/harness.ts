@@ -11,6 +11,7 @@ import {
 } from '@mnbank/core';
 
 import { defaultCatalogue, type ActionDefinition } from '../src/actions/catalogue.js';
+import { AppendEntitlements } from '../src/actions/entitlements.js';
 import { createApp, type AppDeps } from '../src/app.js';
 import { NonceStore } from '../src/auth/nonces.js';
 import { notImplementedChainReader, type ChainReader } from '../src/chain/reader.js';
@@ -45,6 +46,18 @@ export class FakeSponsor implements SponsorSession {
     return fn({ fake: true });
   }
 }
+
+/** The append-inbox entitlements (security review F-B3) with a fixed test key. */
+export const testEntitlements = (
+  over: Partial<ConstructorParameters<typeof AppendEntitlements>[0]> = {},
+): AppendEntitlements =>
+  new AppendEntitlements({
+    key: new Uint8Array(32).fill(7),
+    network: 'undeployed',
+    ttlSeconds: 30 * 86_400,
+    maxPerAccountPerDay: 20,
+    ...over,
+  });
 
 export const silentLog = (): Logger & { lines: string[] } => {
   const lines: string[] = [];

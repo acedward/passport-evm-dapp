@@ -346,7 +346,14 @@ export async function withdrawToWallet(
     spent: coin.commitment,
   });
   const result = done.result as unknown as WithdrawResult;
-  const change = result.change ? localCoin(result.change, account, 'change', result.txId) : null;
+  // The change has no inbox entry yet (Q13); the bank's single-use entitlement to file one is kept
+  // with it (security review F-B3).
+  const change = result.change
+    ? {
+        ...localCoin(result.change, account, 'change', result.txId),
+        ...(result.changeEntitlement ? { appendEntitlement: result.changeEntitlement } : {}),
+      }
+    : null;
   // The spent coin is marked now; the next sync confirms it from the ledger's nullifier.
   const next = readCoins(env.store, env.scope, account).map((c) =>
     c.commitment === coin.commitment ? { ...c, spent: true, spentTx: result.txId } : c,
@@ -362,13 +369,24 @@ export async function withdrawToWallet(
  * wallet signs the `AppendInbox` call once.
  */
 export async function secureChange(env: OperationEnv, account: string, coin: StoredCoin): Promise<{ txId: string }> {
+  // The bank pays for filing an entry only against the entitlement it issued for this coin (F-B3):
+  // without one, say so before the wallet is asked for anything.
+  if (!coin.appendEntitlement) {
+    throw new OperationError(
+      'The bank has no record of this coin as change it can file, so it cannot secure it. It stays spendable from this browser: keep your Export up to date.',
+    );
+  }
   const { state, counter } = await gatedContext(env, account);
   const entry = await sealEntryPortable(hexToBytes(state.encKey, 32), {
     nonce: hexToBytes(coin.nonce, 32),
     color: hexToBytes(coin.color, 32),
     value: BigInt(coin.value),
   });
-  const payload: AppendInboxPayload = { entry: bytesToHex(entry), authNonce: state.authNonce };
+  const payload: AppendInboxPayload = {
+    entry: bytesToHex(entry),
+    authNonce: state.authNonce,
+    entitlement: coin.appendEntitlement,
+  };
   const call = gatedCall(
     { account, authNonce: BigInt(state.authNonce), evmDomainSalt: state.evmDomainSalt },
     env.owner,

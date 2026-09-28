@@ -106,6 +106,8 @@ export function accountCatalogue(deps: AccountActionDeps): Map<RelayActionName, 
   set('append-inbox', {
     auth: 'passport-call',
     payload: AppendInboxPayloadSchema,
+    // Only against a single-use entitlement the bank issued for that change (security review F-B3).
+    admit: async ({ account, payload }) => deps.entitlements.admit(payload.entitlement, account),
     executor: appendInboxExecutor(deps),
   });
   return map;

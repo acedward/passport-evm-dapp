@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs';
 import { bridgeConfigured } from '@mnbank/core';
 
 import { accountCatalogue, withBridge, withTrade } from './actions/catalogue.js';
+import { AppendEntitlements, entitlementKey } from './actions/entitlements.js';
 import { createApp } from './app.js';
 import { NonceStore } from './auth/nonces.js';
 import { passportCallAuthoriser } from './auth/passport-call.js';
@@ -165,6 +166,14 @@ async function main(): Promise<void> {
     log.info('bridge not configured (it needs the key volume, the vault profile and SEPOLIA_RPC_URL_FILE)');
   }
 
+  // Security review F-B3: `append-inbox` is sponsored only against a single-use entitlement the
+  // relay issued for a change coin (./actions/entitlements.ts); the MAC key comes from the seed.
+  const entitlements = new AppendEntitlements({
+    key: entitlementKey(secrets.sponsorSeedHex),
+    network: config.network.name,
+    ttlSeconds: config.limits.appendEntitlementTtlSeconds,
+    maxPerAccountPerDay: config.limits.appendsPerAccountPerDay,
+  });
   const nonces = new NonceStore(config.limits.nonceTtlSeconds, config.limits.maxNonces);
   const queue = new JobQueue({
     ttlSeconds: config.limits.jobTtlSeconds,
@@ -180,6 +189,7 @@ async function main(): Promise<void> {
     verifyStart: gatedStartVerifier(() => runtime),
     releaseDigest: (digest) => replay.release(digest),
     isDevice: deviceChecker(() => runtime),
+    issueEntitlement: (account, source) => entitlements.issue(account, source),
     log: log.child({ component: 'bridge' }),
     closedTtlMs: config.limits.jobTtlSeconds * 1000,
   });
@@ -247,6 +257,7 @@ async function main(): Promise<void> {
           vaultAddress: config.network.bridge.vaultAddress,
           chainId: config.network.evm.chainId,
           replay,
+          entitlements,
           log: log.child({ component: 'accounts' }),
         }),
         bridge,
