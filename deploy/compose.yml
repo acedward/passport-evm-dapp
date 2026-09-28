@@ -133,8 +133,8 @@ services:
       timeout: 20s
       start_period: 180s
       retries: 3
-    # 8g (plan question Q25 A): during a proof the relay peaks at about 5 to 7 GB; under 4 GiB a
-    # host without swap can OOM-kill it mid-proof. RUNBOOK section 2 has the sizing.
+    # 8g (plan question Q25 A) is headroom: the relay needs 1 to 2 GB, and a proof adds about
+    # 0.15 GB since it streams the prover key (plan P5.1b). RUNBOOK section 2 has the sizing.
     mem_limit: ${RELAY_MEM_LIMIT:-8g}
     stop_grace_period: 30s
     restart: unless-stopped

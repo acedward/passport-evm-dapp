@@ -56,15 +56,20 @@ and `curl`. A TLS reverse proxy (Caddy, nginx, a tunnel) for the public site.
 | What | Memory |
 |---|---|
 | Proof server, during a k=18 proof (every signed account call except registration) | about 8 GB; its limit is `PROOF_SERVER_MEM_LIMIT=12g` |
-| Relay | 1 to 2 GB idle, **about 5 to 7 GB at its peak during a proof**; limit `RELAY_MEM_LIMIT=8g` |
+| Relay | 1 to 2 GB idle; a proof adds about 0.15 GB (it streams the prover key to the proof server); limit `RELAY_MEM_LIMIT=8g` |
 | Web | under 50 MB; limit 256 MB |
 | Key job, once, while it compiles | limit `KEYS_JOB_MEM_LIMIT=12g` |
 
-Plan for about **24 GB of RAM**: the relay (up to about 7 GB) and the proof server (about 8 GB)
-peak together during every k=18 proof. The relay proves one call at a time, so the proof server
-never needs more than one k=18 proof's memory. Keep `RELAY_MEM_LIMIT` at 8g or more: under the
-former 4 GiB limit, a host without swap can OOM-kill the relay in the middle of a proof, and the
-customer's job is lost (plan question Q25; measured in the live acceptance run).
+Plan for about **16 GB of RAM**: the proof server needs about 8 GB during every k=18 proof and the
+relay 1 to 2 GB. The relay proves one call at a time, so the proof server never needs more than one
+k=18 proof's memory. Keep `RELAY_MEM_LIMIT` at its default, 8g: it is a cap, not a reservation, and
+the relay stays far below it. `test/memory/README.md` has a check you can run on your host, and
+`docs/PERFORMANCE.md` the measurements.
+
+Builds before the relay-memory fix (plan P5.1b; up to master `a0b760b`) held several copies of the
+prover key per proof and peaked at about 5 to 7 GB. They need the 24 GB sizing and at least 8g: under
+4 GiB, a host without swap can OOM-kill that relay in the middle of a proof, and the customer's job
+is lost (plan question Q25; measured in the live acceptance run).
 
 **Disk**: about 20 GB free before the first start. The images take about 1.8 GB, the key volume
 3.4 GB, and the key compile needs about 8 GB more while it runs (it deletes the extra afterwards).
@@ -562,6 +567,10 @@ docker compose -f deploy/compose.yml up -d
 The `keys` job re-verifies. If the new version changed a key input (the Passport commit, compactc,
 the Signet module, the kept keys), it compiles again first: stop the relay before
 (`docker compose stop relay`), keep about 12 GB of disk free, and run `up keys` attached.
+
+**Upgrading from `a0b760b` or earlier** (before the relay-memory fix, plan P5.1b): the commands
+above. Only the relay image changes: no setting, no key and no page. A proof then adds about 0.15 GB
+to the relay instead of 3.5 to 5 GB.
 
 **Upgrading a deployment made from `423f44e`** (before the security-review fixes):
 
