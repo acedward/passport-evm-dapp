@@ -99,9 +99,8 @@ export class PassportRuntime {
     const binding = bindingCheck(readExpectedVk(client), managedPath);
 
     const { indexerPublicDataProvider } = await import('@midnight-ntwrk/midnight-js-indexer-public-data-provider');
-    const { NodeZkConfigProvider, nodeZkConfigRegistry } =
-      await import('@midnight-ntwrk/midnight-js-node-zk-config-provider');
-    const { httpClientProofProvider } = await import('@midnight-ntwrk/midnight-js-http-client-proof-provider');
+    const { NodeZkConfigProvider } = await import('@midnight-ntwrk/midnight-js-node-zk-config-provider');
+    const { relayProofProvider } = await import('../prover/proving-provider.js');
     if (!('WebSocket' in globalThis)) {
       const { WebSocket } = await import('ws');
       (globalThis as { WebSocket?: unknown }).WebSocket = WebSocket;
@@ -117,8 +116,11 @@ export class PassportRuntime {
     const shared = {
       publicDataProvider: pdp,
       zkConfigProvider: new NodeZkConfigProvider(join(managedPath, 'account')),
-      proofProvider: httpClientProofProvider(options.proofServerUrl, await nodeZkConfigRegistry(managedPath), {
+      // midnight-js's HTTP proof provider, rebuilt to stream each prover key to the proof server
+      // instead of holding copies of it (plan P5.1b, question Q25; ../prover/proving-provider.ts).
+      proofProvider: await relayProofProvider(options.proofServerUrl, managedPath, {
         timeout: options.proofTimeoutMs ?? 900_000,
+        log: options.log,
       }),
     };
     options.log.info('passport runtime loaded', { circuits: binding.circuits, network: options.networkId });
@@ -129,6 +131,16 @@ export class PassportRuntime {
    *  vault's request records through it). */
   get publicDataProvider(): unknown {
     return this.shared.publicDataProvider;
+  }
+
+  /** The proof provider every job shares (relay/src/tools/prover-memory.ts measures it). */
+  get proofProvider(): unknown {
+    return this.shared.proofProvider;
+  }
+
+  /** The account's ZK artefacts (verifier keys and ZKIR) in the key volume. */
+  get zkConfigProvider(): unknown {
+    return this.shared.zkConfigProvider;
   }
 
   /** The compiled account (the MN Bank shape), with the coin-store witnesses and the key

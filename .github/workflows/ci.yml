@@ -149,6 +149,27 @@ jobs:
           docker run --rm --entrypoint bun mnbank/key-volume:ci relay/src/tools/key-volume.ts marker-inputs /tmp
           docker image inspect mnbank/web:ci mnbank/key-volume:ci --format '{{.RepoTags}} {{.Size}} bytes'
 
+  prover-memory:
+    # Plan P5.1b (question Q25): the relay streams each prover key to the proof server instead of
+    # holding copies of it. A generated 544 MB key (a k=18 account key's size) is sent four times
+    # through the relay's proof provider, in the relay's base image, in a 1 GiB container without
+    # swap; the check fails past 512 MB or when the kernel kills it. test/memory/README.md.
+    name: Relay prover memory (synthetic 544 MB key, 1 GiB, no swap)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+          persist-credentials: false
+      - run: bash test/memory/run-prover-memory.sh synthetic
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: prover-memory
+          path: test-results/prover-memory/
+          retention-days: 7
+
   secret-scan:
     name: Secret scan (full history)
     runs-on: ubuntu-24.04

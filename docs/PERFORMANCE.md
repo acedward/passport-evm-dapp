@@ -10,7 +10,8 @@ and Sepolia finality.
 
 - **Proof** is the time to prove the one circuit the customer signs, as the relay measured it. A
   k=18 circuit needs about 8 GB of RAM on the proof server, and the relay proves one circuit at a
-  time.
+  time. The figures predate the relay-memory fix, which cut a k=18 proof's round trip by about a
+  third on the test host (below).
 - **Click to done** runs from the customer's signature to the page showing the result.
 - **Fees** are what the chain charges, as the indexer reports them. **Sponsor spend** is how far the
   sponsor wallet's DUST balance fell. At margin 20 the wallet declares the fee × 1.046^20 (about
@@ -64,8 +65,51 @@ The closer is bounded in three ways:
 
 `/health` reports the count, the cap and the most recent closes under `bridge.staleRequests`.
 
+## Relay memory during a proof
+
+The relay sends each proof's prover key to the proof server; a k=18 account key is 544 MB. Up to
+master `f8710eb` it did that through midnight-js's HTTP proof provider, which held about eight copies
+of the key per proof:
+
+- `check` read the key only to send its ZKIR;
+- `prove` read it again, and the ledger's WASM built the request body in its own heap, which grew to
+  about 1.7 GB and never shrank;
+- the ledger's `lookupKey` call copied the key into that heap once more;
+- the body was then copied again on its way out.
+
+In the live acceptance run the relay went past its 4 GiB limit during every proof (4.25 GB in memory
+plus up to 2.44 GB swapped out; plan question Q25).
+
+Since plan P5.1b (`relay/src/prover/proving-provider.ts`), `check` reads only the ZKIR, `lookupKey`
+leaves the prover key out, and `prove` streams the body from the key file in 16 MB chunks. The body
+is byte-identical to the one the ledger builds, compared by SHA-256 for the real key, so the proof
+server receives the same request and returns the same proof.
+
+Measured with `relay/src/tools/prover-memory.ts` (`test/memory/README.md`):
+
+- **Setup**: `account/append_inbox_with_evm` (k=18), proved through the relay's proof provider against
+  `proof-server:9.0.0-rc.6`, on Bun 1.3.11, in a container without swap.
+- **What is counted**: the relay process's anonymous memory, sampled every 100 ms.
+- **Not counted**: the harness holds no sponsor wallet. An idle relay with a synced wallet adds about
+  1 to 1.2 GB to every figure below.
+
+| | Before (measured on `a0b760b`) | After (P5.1b) |
+|---|---|---|
+| Before any proof | 242 MB | 231 to 246 MB |
+| Peak during one proof | **4,604 MB** | **374 MB** |
+| 5 s after one proof | 2,953 MB | 226 MB |
+| Peaks, four proofs in a row | 4,601 / 4,578 / 5,110 / 5,110 MB | 351 / 329 / 306 / 290 MB |
+| After four proofs | 3,475 MB, and 1,843 MB after a forced GC | 175 MB |
+| One proof's round trip on the test host | 30.5 to 31.4 s | 19.1 to 19.5 s |
+| Four proofs in a 1 GiB container without swap | killed by the kernel during the first | pass, peak 339 MB |
+
+A forced `Bun.gc(true)` after each proof freed nothing on the old path, and the new path does not
+need it. A bridge start proves three calls at once (the account's, the vault's and the Signet
+singleton's). Each call streams its own key, so the relay holds a few 16 MB chunks, not three keys.
+
 ## Sources
 
 The figures come from the project's evidence: the account lane's local and live registration, the
 bridge gate and the bridge lane's live runs through the UI, the trading lane's live take and
-make/take through the UI, and the stack recipe's activation proof.
+make/take through the UI, the stack recipe's activation proof, the live acceptance run (relay
+memory before the fix) and the relay-memory measurements of plan P5.1b.
