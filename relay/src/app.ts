@@ -36,6 +36,7 @@ import type { AdmissionOutcome } from './actions/admission.js';
 import type { ActionDefinition } from './actions/catalogue.js';
 import type { NonceStore } from './auth/nonces.js';
 import { verifyRelayActionRequest, type VerifyOutcome } from './auth/verifiers.js';
+import { AccountHistoryTooLongError } from './chain/indexer.js';
 import { ChainReadNotImplementedError, type ChainReader } from './chain/reader.js';
 import type { RelayConfig } from './config.js';
 import type { Logger } from './log.js';
@@ -208,6 +209,16 @@ export function createApp(deps: AppDeps): Hono {
       return page ? c.json(page) : apiError(c, 404, 'not-found', 'no such account');
     } catch (e) {
       if (e instanceof ChainReadNotImplementedError) return apiError(c, 501, 'not-implemented', e.message);
+      // A known limit, not an outage (RUNBOOK §12, plan question Q27): say which, so the page can.
+      if (e instanceof AccountHistoryTooLongError) {
+        log.warn('account history beyond one indexer page; not read (no paging yet)', { kind, limit: e.limit });
+        return apiError(
+          c,
+          501,
+          'history-too-long',
+          `this account has ${e.limit} or more actions, more history than this version of the bank can read`,
+        );
+      }
       log.warn('chain read failed', { kind, error: e });
       return apiError(c, 503, 'chain-unavailable', 'the chain could not be read right now; try again shortly');
     }

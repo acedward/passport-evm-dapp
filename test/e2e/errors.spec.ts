@@ -5,8 +5,8 @@
 //
 //   the bank's relay unreachable · its fee wallet (DUST) low or still syncing · the vault's EVM
 //   account low on gas · the MPC slow, then timed out · the exchange (kernel) down · its settlement
-//   service (batcher) down, answering 429, answering 500 · local storage full · the wallet on the
-//   wrong network.
+//   service (batcher) down, answering 429, answering 500 · an account with more history than this
+//   version reads (Q27) · local storage full · the wallet on the wrong network.
 
 import { expect, test, type Page, type Route } from '@playwright/test';
 
@@ -269,6 +269,34 @@ test.describe('the exchange', () => {
       timeout: 20_000,
     });
     await expect(page.getByTestId('buy-best-ask')).toBeDisabled();
+  });
+});
+
+test.describe('the account', () => {
+  test('more history than this version reads (Q27): the page says so, and keeps the last balances', async ({
+    page,
+  }) => {
+    await serveExchange(page);
+    await installCustomer(page, { withAccount: true });
+    await serveHealth(page);
+    // Registered after installCustomer's account routes, so it answers first (Playwright runs the
+    // newest matching route first).
+    await page.route(`**/v1/accounts/${ACCOUNT}/zswap`, (route) =>
+      json(route, 501, {
+        error: {
+          code: 'history-too-long',
+          message: 'this account has 500 or more actions, more history than this version of the bank can read',
+        },
+      }),
+    );
+    await page.goto('/#accounts');
+    await connect(page);
+    const message = page.getByTestId('accounts-message');
+    await expect(message).toContainText('more history than this version of MN Bank can read', { timeout: 20_000 });
+    await expect(message).toContainText('Nothing is lost');
+    await expect(message).not.toContainText('cannot read Midnight right now');
+    // The coins from the last refresh are still listed.
+    await expect(page.getByTestId('passport-row').first()).toBeVisible();
   });
 });
 

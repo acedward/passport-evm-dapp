@@ -532,7 +532,27 @@ These are accepted for this version (plan question Q9), and the UI explains them
   recording change in the inbox only against an entitlement it issued with that change) cannot be
   recorded in the inbox after the upgrade. They stay spendable from the customer's browser, and
   the customer's Export keeps them; only a restore from the chain alone would miss them (plan
-  question Q26, accepted).
+  question Q26, accepted);
+- **an account with 500 or more contract actions cannot be reconciled** until the relay pages
+  through the indexer (plan question Q27; paging is a follow-up). The relay reads an account's
+  coin positions and spends in one indexer query, and the indexer returns at most 500 actions per
+  page. Every deposit, withdrawal, change recording, offer, take and fill is at least one action,
+  so a customer with a normal history (tens of operations) is not affected; a customer who
+  re-quotes offers many times a day can be.
+  - **What the customer sees**: the Accounts page says the account "has more history than this
+    version of MN Bank can read (500 or more actions on Midnight)". The balances stay at the last
+    refresh, new coins do not appear (so they cannot be spent from the page yet), and spends are
+    not confirmed. Nothing is lost: the coins stay on Midnight, and the customer's Export keeps the
+    account's secret key.
+  - **What the operator sees**: `GET /relay/v1/accounts/<account>/zswap` answers `501` with the
+    error code `history-too-long`, and the relay logs the warning "account history beyond one
+    indexer page". Check an account with
+    `curl -s https://<your site>/relay/v1/accounts/<account>/zswap`.
+  - **What the operator can do**: no setting lifts the limit. Tell the customer to keep their
+    Export and to stop trading from that account until the next release; they can open a new
+    account from another wallet address for new activity. A release of this repository with
+    indexer paging reconciles the account again: the customer only reopens the page (or imports
+    their Export).
 
 ## 13. Start, stop, upgrade and re-pin
 
