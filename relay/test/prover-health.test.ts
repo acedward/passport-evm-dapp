@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { healthCollector, httpProbes, type ExternalProbes } from '../src/health.js';
 import { ProofServerClient } from '../src/prover/client.js';
-import { checkKeyVolume, scanKeyTree } from '../src/prover/keys.js';
+import { cachedKeyCheck, checkKeyVolume, scanKeyTree, type KeyCheck } from '../src/prover/keys.js';
 import { JobQueue } from '../src/queue/jobs.js';
 import { DisabledSponsorSession } from '../src/sponsor/session.js';
 import { FakeSponsor, silentLog } from './harness.js';
@@ -218,6 +218,87 @@ describe('health (FR-013)', () => {
     now += 15;
     await c();
     expect(calls).toBe(2);
+  });
+
+  // Security review F-B1: a burst of /health requests must not multiply the probes.
+  it('starts exactly ONE probe set for many simultaneous requests (single-flight)', async () => {
+    let probeSets = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const c = collector({
+      probes: {
+        ...okProbes(),
+        kernel: async () => {
+          probeSets++;
+          await gate;
+          return { reachable: true, synced: true };
+        },
+      },
+    });
+    const burst = Array.from({ length: 50 }, () => c());
+    await Promise.resolve();
+    expect(probeSets).toBe(1);
+    release();
+    const all = await Promise.all(burst);
+    expect(probeSets).toBe(1);
+    expect(new Set(all.map((h) => h.status))).toEqual(new Set(['ok']));
+  });
+
+  it('serves the cached report while one refresh runs, and waits only when the cache is old', async () => {
+    let now = 100;
+    let probeSets = 0;
+    let gasWei = 10n ** 18n;
+    const gate: { release?: () => void } = {};
+    const c = collector({
+      now: () => now,
+      probes: {
+        ...okProbes(),
+        vaultGasWei: async () => {
+          probeSets++;
+          if (probeSets > 1) await new Promise<void>((r) => (gate.release = r));
+          return gasWei;
+        },
+      },
+    });
+    expect((await c()).vaultGas.balanceWei).toBe((10n ** 18n).toString());
+    now += 20; // expired (15 s), but recent (under 60 s): served at once while ONE refresh runs
+    gasWei = 5n;
+    const during = await Promise.all(Array.from({ length: 20 }, () => c()));
+    expect(probeSets).toBe(2);
+    expect(during.every((h) => h.vaultGas.balanceWei === (10n ** 18n).toString())).toBe(true);
+    gate.release!();
+    await new Promise((r) => setTimeout(r, 0));
+    expect((await c()).vaultGas.balanceWei).toBe('5');
+    expect(probeSets).toBe(2);
+    now += 600; // far past the stale bound: callers wait for the one shared refresh
+    gasWei = 7n;
+    const waiting = Promise.all([c(), c(), c()]);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(probeSets).toBe(3);
+    gate.release!();
+    expect((await waiting).map((h) => h.vaultGas.balanceWei)).toEqual(['7', '7', '7']);
+  });
+
+  it('re-scans the key volume only on its own long interval, not per refresh', () => {
+    let scans = 0;
+    let now = 1000;
+    const initial: KeyCheck = {
+      present: true,
+      fingerprint: 'f'.repeat(64),
+      pinned: false,
+      matchesPin: null,
+      missingProverKeys: [],
+      missingVerifierKeys: [],
+      missingZkir: [],
+      mismatchedVerifierKeys: [],
+    };
+    const keys = cachedKeyCheck(() => (scans++, initial), { initial, intervalSeconds: 3600, now: () => now });
+    for (let i = 0; i < 100; i++) expect(keys()).toBe(initial);
+    expect(scans).toBe(0);
+    now += 3600;
+    keys();
+    keys();
+    expect(scans).toBe(1);
   });
 
   it('probes the kernel, batcher and Sepolia over HTTP without leaking the RPC URL', async () => {

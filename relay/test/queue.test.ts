@@ -260,6 +260,49 @@ describe('job state', () => {
     expect(q.get(running.requestId)?.expiresAt).toBe(now + 10);
   });
 
+  // Security review F-B2: outcomes kept for their TTL must never refuse new work.
+  it('a flood of failed jobs cannot fill the capacity: finished outcomes make room, failed ones first', async () => {
+    const q = queue({ maxJobs: 10, ttlSeconds: 86_400 });
+    const ok = q.submit({ action: 'withdraw', lane: 'prover', payload: {}, executor: async () => ({ ok: true }) })!;
+    await q.settled(ok.requestId);
+    const failed: string[] = [];
+    for (let i = 0; i < 50; i++) {
+      const job = q.submit({
+        action: 'bridge-resume',
+        lane: 'deposit',
+        account: 'ab'.repeat(32),
+        payload: {},
+        executor: async () => {
+          throw new PublicError('unauthorised', 'not a device');
+        },
+      });
+      expect(job).not.toBeNull();
+      failed.push(job!.requestId);
+      await q.settled(job!.requestId);
+    }
+    expect(q.stats().jobs).toBeLessThanOrEqual(10);
+    // The customer's succeeded outcome outlived 50 failures: failed outcomes are dropped first.
+    expect(q.get(ok.requestId)?.state).toBe('succeeded');
+    expect(q.get(failed[0]!)).toBeUndefined();
+    expect(q.get(failed[49]!)?.state).toBe('failed');
+    // And a real customer's action is still admitted.
+    expect(q.submit({ action: 'register', lane: 'prover', payload: {}, executor: async () => ({}) })).not.toBeNull();
+  });
+
+  it('is busy only when maxJobs jobs are waiting or running', async () => {
+    const q = queue({ maxJobs: 10 });
+    const p = probe();
+    for (let i = 0; i < 10; i++)
+      expect(
+        q.submit({ action: 'register', lane: 'prover', payload: {}, executor: p.executor(`j${i}`) }),
+      ).not.toBeNull();
+    expect(q.submit({ action: 'register', lane: 'prover', payload: {}, executor: p.executor('late') })).toBeNull();
+    await p.release('j0');
+    expect(q.submit({ action: 'register', lane: 'prover', payload: {}, executor: p.executor('next') })).not.toBeNull();
+    for (let i = 1; i < 10; i++) await p.release(`j${i}`);
+    await p.release('next');
+  });
+
   it('refuses new jobs when full', async () => {
     const q = queue({ maxJobs: 2 });
     const p = probe();

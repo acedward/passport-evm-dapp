@@ -4,6 +4,7 @@
 
 import { readFile } from 'node:fs/promises';
 
+import { x25519 } from '@noble/curves/ed25519.js';
 import { expect, test, type Page } from '@playwright/test';
 import { hexlify, randomBytes } from 'ethers';
 
@@ -53,7 +54,11 @@ test('shell, wallet connection with the Sepolia switch, and the Local data round
   // Another tab writes this wallet's account records; this tab follows (storage events).
   const scope = { network: 'stagenet', evmAddress: wallet.address };
   const account = hexlify(randomBytes(32)).slice(2);
-  const encSecretKey = hexlify(randomBytes(32)).slice(2);
+  // Records as the page writes them: Import accepts nothing else (security review F-B4).
+  const secretBytes = x25519.utils.randomSecretKey();
+  const encSecretKey = Buffer.from(secretBytes).toString('hex');
+  const encPublicKey = Buffer.from(x25519.getPublicKey(secretBytes)).toString('hex');
+  const colour = 'ab'.repeat(32);
   const other = await context.newPage();
   await other.goto('/');
   await other.evaluate(
@@ -63,12 +68,38 @@ test('shell, wallet connection with the Sepolia switch, and the Local data round
     [
       [
         recordKey(scope, 'account', { account }),
-        encodeRecord('account', { address: account, device: wallet.address.toLowerCase() }, Date.now()),
+        encodeRecord(
+          'account',
+          {
+            address: account,
+            device: wallet.address.toLowerCase(),
+            network: 'stagenet',
+            vault: 'ee'.repeat(32),
+            createdAt: Date.now(),
+          },
+          Date.now(),
+        ),
       ],
-      [recordKey(scope, 'secret', { account }), encodeRecord('secret', { encSecretKey }, Date.now())],
+      [recordKey(scope, 'secret', { account }), encodeRecord('secret', { encSecretKey, encPublicKey }, Date.now())],
       [
         recordKey(scope, 'coins', { account }),
-        encodeRecord('coins', [{ colour: 'ab'.repeat(32), value: '60000000' }], Date.now()),
+        encodeRecord(
+          'coins',
+          [
+            {
+              nonce: '01'.repeat(32),
+              color: colour,
+              value: '60000000',
+              mtIndex: '7',
+              commitment: 'c0'.repeat(32),
+              origin: 'inbox',
+              inInbox: true,
+              inboxIndex: '0',
+              spent: false,
+            },
+          ],
+          Date.now(),
+        ),
       ],
     ] as Array<[string, string]>,
   );
@@ -128,6 +159,24 @@ test('shell, wallet connection with the Sepolia switch, and the Local data round
     .getByTestId('import-file')
     .setInputFiles({ name: 'garbage.json', mimeType: 'application/json', buffer: Buffer.from('{"hello":') });
   await expect(page.getByTestId('local-message')).toContainText('could not be read');
+  expect(await bankKeys(page)).toEqual(before);
+
+  // A file that would swap in another encryption secret for the account is refused unless the
+  // chain says that key is the account's (security review F-B5); nothing changes.
+  const otherSecret = x25519.utils.randomSecretKey();
+  const swapped = JSON.parse(exported) as { records: Array<{ value: { kind: string; data: unknown } }> };
+  for (const r of swapped.records)
+    if (r.value.kind === 'secret')
+      r.value.data = {
+        encSecretKey: Buffer.from(otherSecret).toString('hex'),
+        encPublicKey: Buffer.from(x25519.getPublicKey(otherSecret)).toString('hex'),
+      };
+  await page.getByTestId('import-file').setInputFiles({
+    name: 'swapped.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify(swapped)),
+  });
+  await expect(page.getByTestId('local-message')).toContainText('would replace the encryption secret');
   expect(await bankKeys(page)).toEqual(before);
 });
 

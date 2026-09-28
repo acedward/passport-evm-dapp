@@ -23,6 +23,8 @@ const VAULT_EVM = '0x648216975e722494bFF92E88FFc68C8F8d438FaA';
 const STKA = '0x2Ab7BE0769e3BBD5c7d047B422CB383fCC06FB52';
 const WSTKA = '5eb2a3cebb2ebe7ba910c78f62c9e28e0d74acbd00c810730def3578860e6a02';
 const REQUEST = 'a1'.repeat(32);
+/** The relay's single-use entitlement to file a change's inbox entry (security review F-B3). */
+const CHANGE_ENTITLEMENT = `ae1.${ACCOUNT}.${'0e'.repeat(32)}.99999999999.${'ac'.repeat(32)}`;
 const CORS = {
   'access-control-allow-origin': '*',
   'access-control-allow-headers': 'content-type',
@@ -87,7 +89,14 @@ class MockRelay {
                 txHash: 'f0'.repeat(32),
                 requestId: REQUEST,
                 startedAtMs: String(Date.now()),
-                ...(change ? { changeNonce: change.nonce, changeColour: change.color, changeValue: change.value } : {}),
+                ...(change
+                  ? {
+                      changeNonce: change.nonce,
+                      changeColour: change.color,
+                      changeValue: change.value,
+                      changeEntitlement: CHANGE_ENTITLEMENT,
+                    }
+                  : {}),
               },
             },
           ];
@@ -255,6 +264,9 @@ test.describe('Transfers (mocked relay and MPC)', () => {
     await page.getByTestId('deposit-token').selectOption('stkA');
     await page.getByTestId('deposit-amount').fill('1');
     await page.getByTestId('deposit-continue').click();
+    // The page shows exactly the arguments the wallet will get, derived, not stored (F-B4).
+    await expect(page.getByTestId('funding-token-args')).toContainText(DEPOSIT_ADDRESS);
+    await expect(page.getByTestId('funding-gas-args')).toContainText(DEPOSIT_ADDRESS);
     await page.getByTestId('send-tokens').click();
     await expect(page.getByTestId('tokens-ready')).toBeVisible();
     await page.getByTestId('send-gas').click();
@@ -286,6 +298,31 @@ test.describe('Transfers (mocked relay and MPC)', () => {
       [`mn-bank/v1/stagenet/${wallet.address.toLowerCase()}/${ACCOUNT}/coins`],
     );
     expect(coins).toEqual([expect.objectContaining({ color: WSTKA, value: '1000000', nonce: 'ee'.repeat(32) })]);
+  });
+
+  test('an imported deposit that names a foreign deposit address cannot send anything (F-B4)', async ({ page }) => {
+    const { wallet } = await open(page);
+    await page.getByTestId('deposit-token').selectOption('stkA');
+    await page.getByTestId('deposit-amount').fill('1');
+    await page.getByTestId('deposit-continue').click();
+    await expect(page.getByTestId('funding-token-args')).toBeVisible();
+    // Rewrite the draft as a malicious import would: a foreign deposit address.
+    await page.evaluate((prefix) => {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i)!;
+        if (!k.startsWith(prefix) || !k.includes('/bridge/')) continue;
+        const r = JSON.parse(localStorage.getItem(k)!) as { data: Record<string, unknown> };
+        r.data.depositAddress = '0x000000000000000000000000000000000000bEEF';
+        localStorage.setItem(k, JSON.stringify(r));
+      }
+    }, `mn-bank/v1/stagenet/${wallet.address.toLowerCase()}/`);
+    await page.reload();
+    await page.getByTestId('connect').click();
+    await page.getByTestId('wallet-option').filter({ hasText: 'MN Test Wallet' }).click();
+    await expect(page.getByTestId('deposit-funding-refused')).toContainText("not your account's");
+    await expect(page.getByTestId('send-tokens')).toBeDisabled();
+    await expect(page.getByTestId('send-gas')).toBeDisabled();
+    expect(wallet.calls.filter((c) => c.method === 'eth_sendTransaction')).toHaveLength(0);
   });
 
   test('the preflight refuses a start without the sweep gas, before anything is signed', async ({ page }) => {
@@ -349,6 +386,8 @@ test.describe('Transfers (mocked relay and MPC)', () => {
     const card = page.locator('[data-testid=transfer][data-kind=withdraw]').first();
     await expect(card.getByTestId('transfer-change-secured')).toBeVisible({ timeout: 60_000 });
     expect(relay.submitted.map((s) => s.action)).toEqual(['bridge-withdraw', 'append-inbox']);
+    // The append carries the bank's single-use entitlement for this change (security review F-B3).
+    expect((relay.submitted[1]!.body.payload as { entitlement?: string }).entitlement).toBe(CHANGE_ENTITLEMENT);
     expect(relay.submitted[0]!.body.payload).toMatchObject({
       amount: '600000',
       dest: wallet.address,

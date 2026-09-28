@@ -15,6 +15,11 @@
 //
 // When a job finishes, its payload (which can hold the coin it spends) is dropped at once; only
 // the public outcome is kept, until the TTL.
+//
+// Capacity (security review F-B2): `maxJobs` bounds the jobs held in memory. Only queued and
+// running jobs can fill it: when it is full, finished outcomes are dropped to make room (failed
+// ones first, then succeeded ones, oldest first), so outcomes kept for their TTL never refuse new
+// work. The relay answers "busy" only when `maxJobs` jobs are actually waiting or running.
 
 import { randomBytes } from 'node:crypto';
 
@@ -96,9 +101,11 @@ export class JobQueue {
     this.now = options.now ?? (() => Math.floor(Date.now() / 1000));
   }
 
-  /** Queue a job; null when the relay already holds its maximum number of jobs. */
+  /** Queue a job; null when `maxJobs` jobs are already queued or running (finished outcomes are
+   *  dropped to make room, see the header). */
   submit(sub: JobSubmission): JobView | null {
     if (this.jobs.size >= this.options.maxJobs) this.sweep();
+    if (this.jobs.size >= this.options.maxJobs) this.evictFinished(this.jobs.size - this.options.maxJobs + 1);
     if (this.jobs.size >= this.options.maxJobs) return null;
     if (sub.lane === 'deposit' && !sub.account) throw new Error('a deposit job needs its account');
     const requestId = randomBytes(16).toString('hex');
@@ -173,6 +180,21 @@ export class JobQueue {
     for (const [id, rec] of this.jobs) {
       if ((rec.state === 'succeeded' || rec.state === 'failed') && rec.expiresAt <= now) this.jobs.delete(id);
     }
+  }
+
+  /** Drop up to `count` finished outcomes before their TTL: failed ones first, then succeeded
+   *  ones, oldest first (security review F-B2). Queued and running jobs are never dropped. */
+  private evictFinished(count: number): void {
+    let dropped = 0;
+    for (const state of ['failed', 'succeeded'] as const) {
+      for (const [id, rec] of this.jobs) {
+        if (dropped >= count) break;
+        if (rec.state !== state) continue;
+        this.jobs.delete(id);
+        dropped++;
+      }
+    }
+    if (dropped > 0) this.options.log.warn('job outcomes dropped before their TTL to make room', { dropped });
   }
 
   private laneLock(rec: JobRecord): FifoLock {

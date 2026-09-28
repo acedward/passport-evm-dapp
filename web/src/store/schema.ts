@@ -123,6 +123,11 @@ export function encodeRecord<T>(kind: RecordKind, data: T, updatedAt: number): s
 export const EXPORT_FORMAT = 'mn-bank-local-data';
 export const EXPORT_FORMAT_VERSION = 1;
 
+/** The most an import may hold (security review F-B5): the file's size, and its records' total
+ *  size once serialised (localStorage itself holds about 5 MB per site). */
+export const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024;
+export const MAX_IMPORT_RECORDS = 10_000;
+
 export const ExportFileSchema = z.object({
   format: z.literal(EXPORT_FORMAT),
   formatVersion: z.literal(EXPORT_FORMAT_VERSION),
@@ -130,6 +135,8 @@ export const ExportFileSchema = z.object({
   exportedAt: z.string(),
   network: z.string().regex(NETWORK_RE),
   evmAddress: z.string().regex(EVM_RE),
-  records: z.array(z.object({ key: z.string().startsWith(STORE_PREFIX).max(512), value: z.unknown() })).max(10_000),
+  records: z
+    .array(z.object({ key: z.string().startsWith(STORE_PREFIX).max(512), value: z.unknown() }))
+    .max(MAX_IMPORT_RECORDS),
 });
 export type ExportFile = z.infer<typeof ExportFileSchema>;

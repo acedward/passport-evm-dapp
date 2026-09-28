@@ -66,6 +66,8 @@ export interface RelayConfig {
   };
   limits: {
     readsPerMinute: number;
+    /** GET /health per client address (security review F-B1); monitors poll about once a minute. */
+    healthPerMinute: number;
     noncesPerMinute: number;
     actionsPerMinute: number;
     actionsPerOwnerPerMinute: number;
@@ -75,6 +77,10 @@ export interface RelayConfig {
     jobTtlSeconds: number;
     maxJobs: number;
     maxBodyBytes: number;
+    /** How long a change's append entitlement stays valid (security review F-B3). */
+    appendEntitlementTtlSeconds: number;
+    /** The most inbox appends the bank pays for per account in any rolling 24 h (F-B3 backstop). */
+    appendsPerAccountPerDay: number;
   };
   /** Health reports low gas when the vault's EVM account holds less than this (wei). */
   vaultGasLowWei: bigint;
@@ -272,6 +278,7 @@ export function loadConfig(env: Env, readFile: ReadFile): { config: RelayConfig;
     },
     limits: {
       readsPerMinute: int(env.RATE_LIMIT_READS_PER_MIN, 240, 'RATE_LIMIT_READS_PER_MIN', 1),
+      healthPerMinute: int(env.RATE_LIMIT_HEALTH_PER_MIN, 60, 'RATE_LIMIT_HEALTH_PER_MIN', 1),
       noncesPerMinute: int(env.RATE_LIMIT_NONCES_PER_MIN, 30, 'RATE_LIMIT_NONCES_PER_MIN', 1),
       actionsPerMinute: int(env.RATE_LIMIT_ACTIONS_PER_MIN, 10, 'RATE_LIMIT_ACTIONS_PER_MIN', 1),
       actionsPerOwnerPerMinute: int(
@@ -286,6 +293,19 @@ export function loadConfig(env: Env, readFile: ReadFile): { config: RelayConfig;
       jobTtlSeconds: int(env.JOB_TTL_SECONDS, 86_400, 'JOB_TTL_SECONDS', 60),
       maxJobs: int(env.JOB_MAX, 10_000, 'JOB_MAX', 10),
       maxBodyBytes: int(env.RELAY_MAX_BODY_BYTES, 1_048_576, 'RELAY_MAX_BODY_BYTES', 1024),
+      appendEntitlementTtlSeconds: int(
+        env.APPEND_ENTITLEMENT_TTL_SECONDS,
+        30 * 86_400,
+        'APPEND_ENTITLEMENT_TTL_SECONDS',
+        3600,
+        365 * 86_400,
+      ),
+      appendsPerAccountPerDay: int(
+        env.APPEND_INBOX_MAX_PER_ACCOUNT_PER_DAY,
+        20,
+        'APPEND_INBOX_MAX_PER_ACCOUNT_PER_DAY',
+        1,
+      ),
     },
     vaultGasLowWei: big(env.VAULT_GAS_LOW_WEI, 2_000_000_000_000_000n, 'VAULT_GAS_LOW_WEI'),
     bridgeGas: {

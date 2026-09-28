@@ -17,10 +17,11 @@ import {
   Sub,
   TypedConfirmDialog,
 } from '../design/index.js';
+import { RelayClient } from '../relay/client.js';
 import { storageText } from '../store/messages.js';
 import { useStore } from '../store/StoreContext.js';
-import { SCHEMA_VERSION, STORE_PREFIX } from '../store/schema.js';
-import { ImportError, type RecordView } from '../store/store.js';
+import { MAX_IMPORT_FILE_BYTES, SCHEMA_VERSION, STORE_PREFIX } from '../store/schema.js';
+import { ImportError, type LocalStore, type RecordView } from '../store/store.js';
 import { useWallet } from '../wallet/WalletContext.js';
 
 export const CLEAR_ALL_PHRASE = 'CLEAR ALL';
@@ -41,7 +42,28 @@ function download(name: string, text: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
-export function LocalData({ network }: { network: string }) {
+/**
+ * Import as one change (security review F-B5): check the whole file first; an encryption secret it
+ * would replace with a different one is accepted only when the new public key is the account's
+ * on-chain key (so a file cannot swap in a key that opens nothing); then write it all or nothing.
+ */
+export async function importFile(
+  store: LocalStore,
+  relay: Pick<RelayClient, 'accountState'>,
+  file: unknown,
+  scope: { network: string; evmAddress: string },
+): Promise<{ imported: number; replaced: number }> {
+  const plan = store.prepareImport(file, scope);
+  const approved = new Set<string>();
+  for (const c of plan.secretChanges) {
+    if (!c.account) continue;
+    const state = await relay.accountState(c.account).catch(() => null);
+    if (state && state.encKey === c.encPublicKey) approved.add(c.account);
+  }
+  return store.commitImport(plan, { approvedSecretReplacements: approved });
+}
+
+export function LocalData({ network, relayUrl }: { network: string; relayUrl: string }) {
   const { status, store, revision } = useStore();
   const wallet = useWallet();
   const [revealed, setRevealed] = useState<ReadonlySet<string>>(new Set());
@@ -90,9 +112,16 @@ export function LocalData({ network }: { network: string }) {
       setMessage({ kind: 'error', text: 'Connect the wallet the file belongs to before importing it.' });
       return;
     }
+    if (f.size > MAX_IMPORT_FILE_BYTES) {
+      setMessage({
+        kind: 'error',
+        text: 'This file is larger than an MN Bank export can be (5 MB). Nothing was imported.',
+      });
+      return;
+    }
     try {
       const json: unknown = JSON.parse(await f.text());
-      const r = store.importWallet(json, scope);
+      const r = await importFile(store, new RelayClient(relayUrl), json, scope);
       setMessage({
         kind: 'ok',
         text: `Imported ${r.imported} records${r.replaced ? ` (${r.replaced} replaced)` : ''}.`,

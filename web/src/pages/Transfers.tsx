@@ -23,6 +23,7 @@ import { mpcSlow, outcomeText, stageLinks, stageText } from '../bridge/messages.
 import {
   PreflightError,
   depositAddressOf,
+  depositFunding,
   depositShortfall,
   draftDeposit,
   resumeTransfer,
@@ -140,12 +141,12 @@ function DepositPanel({ network, tokens }: { network: NetworkProfile; tokens: To
     const e = env();
     if (!e || !draft) return;
     try {
-      const s = await depositShortfall(e, draft);
+      const s = await depositShortfall(e, draft, tokens);
       setStatus({ held: s.held, tokenShort: s.tokenShort, gasShort: s.gasShort });
     } catch {
       setStatus(null);
     }
-  }, [env, draft]);
+  }, [env, draft, tokens]);
 
   useEffect(() => {
     const t = setTimeout(() => void refresh(), 0);
@@ -158,6 +159,15 @@ function DepositPanel({ network, tokens }: { network: NetworkProfile; tokens: To
       return depositAddressOf(network, account.address);
     } catch {
       return null;
+    }
+  })();
+  // Exactly what the two wallet transactions will use, derived the way they derive it (F-B4).
+  const funding = (() => {
+    if (!draft) return null;
+    try {
+      return { ok: true as const, ...depositFunding(network, tokens, draft) };
+    } catch (err) {
+      return { ok: false as const, message: err instanceof Error ? err.message : 'This deposit cannot be funded.' };
     }
   })();
 
@@ -264,18 +274,28 @@ function DepositPanel({ network, tokens }: { network: NetworkProfile; tokens: To
               },
             ]}
           />
+          {funding && !funding.ok && (
+            <Notice tone="danger" role="alert" data-testid="deposit-funding-refused">
+              {funding.message}
+            </Notice>
+          )}
           <Steps>
             <Step title="Send the tokens with your wallet" done={status?.tokenShort === 0n}>
               <p>Your wallet asks you to approve a transfer to the deposit address.</p>
+              {funding?.ok && (
+                <p className="mono break" data-testid="funding-token-args">
+                  {funding.symbol} contract {short(funding.erc20)} → {funding.depositAddress}
+                </p>
+              )}
               <ButtonRow>
                 <Button
                   variant="secondary"
                   data-testid="send-tokens"
-                  disabled={!!busy || status?.tokenShort === 0n}
+                  disabled={!!busy || status?.tokenShort === 0n || !funding?.ok}
                   onClick={() =>
                     void run('tokens', async () => {
                       const e = env();
-                      if (e) await sendDepositTokens(e, draft);
+                      if (e) await sendDepositTokens(e, draft, tokens);
                     })
                   }
                 >
@@ -292,15 +312,20 @@ function DepositPanel({ network, tokens }: { network: NetworkProfile; tokens: To
             </Step>
             <Step title="Send ETH for the sweep's gas" done={status?.gasShort === 0n}>
               <p>The bridge's sweep of the deposit address pays its own Sepolia gas.</p>
+              {funding?.ok && (
+                <p className="mono break" data-testid="funding-gas-args">
+                  ETH → {funding.depositAddress}
+                </p>
+              )}
               <ButtonRow>
                 <Button
                   variant="secondary"
                   data-testid="send-gas"
-                  disabled={!!busy || status?.gasShort === 0n}
+                  disabled={!!busy || status?.gasShort === 0n || !funding?.ok}
                   onClick={() =>
                     void run('gas', async () => {
                       const e = env();
-                      if (e) await sendDepositGas(e, draft);
+                      if (e) await sendDepositGas(e, draft, tokens);
                     })
                   }
                 >

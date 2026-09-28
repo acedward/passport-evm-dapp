@@ -24,6 +24,7 @@ import {
 } from '@mnbank/core';
 
 import type { AuthKind } from '../auth/verifiers.js';
+import type { AdmissionCheck } from './admission.js';
 import type { BridgeService } from '../bridge/service.js';
 import { PublicError, type JobExecutor } from '../queue/jobs.js';
 import { openSwapExecutor, takeExecutor, type TradeDeps } from '../trade/executors.js';
@@ -37,6 +38,12 @@ export interface ActionDefinition {
   /** Whether the action spends the sponsor's DUST (refused while the sponsor is not ready). */
   requiresSponsor: boolean;
   payload: z.ZodType<Record<string, unknown>>;
+  /** An extra check before the job is queued (./admission.ts; security review F-B2, F-B3). */
+  admit?: AdmissionCheck;
+  /** For a `passport-call` action: whether this body ALSO needs a RelayAction envelope over the
+   *  whole body, signed by the same device, because it carries arguments the call's own signature
+   *  cannot cover (security review F-B6: a withdrawal's recipient encryption key). */
+  envelope?: (payload: Record<string, unknown>) => boolean;
   executor: JobExecutor;
   /** The plan lane that implements the executor. */
   implementedBy: string;
@@ -99,10 +106,18 @@ export function accountCatalogue(deps: AccountActionDeps): Map<RelayActionName, 
   const set = (action: RelayActionName, patch: Partial<ActionDefinition>) =>
     map.set(action, { ...map.get(action)!, ...patch });
   set('register', { executor: registerExecutor(deps) });
-  set('withdraw', { auth: 'passport-call', payload: WithdrawPayloadSchema, executor: withdrawExecutor(deps) });
+  set('withdraw', {
+    auth: 'passport-call',
+    payload: WithdrawPayloadSchema,
+    // The recipient's encryption key is not in the contract's WithdrawShielded challenge (F-B6).
+    envelope: (p) => p.recipientEncryptionKey !== undefined,
+    executor: withdrawExecutor(deps),
+  });
   set('append-inbox', {
     auth: 'passport-call',
     payload: AppendInboxPayloadSchema,
+    // Only against a single-use entitlement the bank issued for that change (security review F-B3).
+    admit: async ({ account, payload }) => deps.entitlements.admit(payload.entitlement, account),
     executor: appendInboxExecutor(deps),
   });
   return map;
@@ -130,7 +145,12 @@ export function withBridge(
     payload: BridgeWithdrawPayloadSchema,
     executor: bridge.withdrawExecutor,
   });
-  set('bridge-resume', { payload: BridgeResumePayloadSchema, executor: bridge.resumeExecutor });
+  // Only a device of the account may queue a resume (security review F-B2); the executor checks again.
+  set('bridge-resume', {
+    payload: BridgeResumePayloadSchema,
+    admit: bridge.admitResume,
+    executor: bridge.resumeExecutor,
+  });
   return map;
 }
 

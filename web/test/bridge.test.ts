@@ -13,6 +13,7 @@ import {
   contractCoinCommitment,
   evmTxParamsJson,
   recoverRelayActionSigner,
+  registryFor,
   type AccountStateView,
   type ActionRequest,
   type BridgeQuote,
@@ -31,6 +32,7 @@ import {
   applyCoins,
   applyJob,
   depositAddressOf,
+  depositFunding,
   draftDeposit,
   pollTransfer,
   resumeTransfer,
@@ -44,8 +46,10 @@ import { readTransfer, writeTransfer, type TransferRecord } from '../src/bridge/
 import { readCoins, readRoster } from '../src/passport/records.js';
 import type { RelayClient } from '../src/relay/client.js';
 import { LocalStore } from '../src/store/store.js';
+import { expectImportRoundTrip } from './roundtrip.js';
 
 const ACCOUNT = '70a62b7d0ceca7905a50f5539c5484f3f77aae6e67cf7a5a87d5eeb6887c2a30'; // G-BRIDGE's account
+const REGISTRY = registryFor('stagenet');
 const SALT = '5a'.repeat(32);
 
 class FakeRelay {
@@ -210,8 +214,8 @@ describe('deposit (L-BRG.1)', () => {
     const { e, wal, relay, tokens, w } = setup();
     const rec = draftDeposit(e, ACCOUNT, tokens.stkA, 1_000_000n);
     expect(rec.depositAddress).toBe('0xEb5A392eeee639C23434C1FA8bccbF6bC730377C');
-    expect(await sendDepositTokens(e, rec)).toMatch(/^0x/);
-    expect(await sendDepositGas(e, rec)).toMatch(/^0x/);
+    expect(await sendDepositTokens(e, rec, REGISTRY)).toMatch(/^0x/);
+    expect(await sendDepositGas(e, rec, REGISTRY)).toMatch(/^0x/);
     const sends = wal.calls.filter((c) => c.method === 'eth_sendTransaction');
     expect(sends).toHaveLength(2);
     const [tokenTx, gasTx] = sends.map((c) => (c.params as Array<Record<string, string>>)[0]!);
@@ -221,8 +225,8 @@ describe('deposit (L-BRG.1)', () => {
     );
     expect(gasTx).toMatchObject({ to: rec.depositAddress, value: '0x38d7ea4c68000' }); // 0.001 ETH
     // Already funded: nothing more is sent.
-    expect(await sendDepositTokens(e, rec)).toBeNull();
-    expect(await sendDepositGas(e, rec)).toBeNull();
+    expect(await sendDepositTokens(e, rec, REGISTRY)).toBeNull();
+    expect(await sendDepositGas(e, rec, REGISTRY)).toBeNull();
 
     relay.quote = { payer: rec.depositAddress! };
     const started = await startDeposit(e, readTransfer(e.store, e.scope, ACCOUNT, rec.id)!);
@@ -253,6 +257,39 @@ describe('deposit (L-BRG.1)', () => {
     expect(readTransfer(e.store, e.scope, ACCOUNT, rec.id)?.funding).toMatchObject({
       tokenTx: expect.any(String),
       gasTx: expect.any(String),
+    });
+    expectImportRoundTrip(e.store, e.scope); // F-B4: what the page wrote imports unchanged
+  });
+
+  // Security review F-B4: a stored record (an Import can write one) never decides where money goes.
+  it('sends to the DERIVED deposit address and the registry token, never to a stored record’s', async () => {
+    const { e, wal, tokens } = setup();
+    const rec = draftDeposit(e, ACCOUNT, tokens.stkA, 1_000_000n);
+    const attacker = '0x000000000000000000000000000000000000bEEF';
+    const sends = () => wal.calls.filter((c) => c.method === 'eth_sendTransaction').length;
+    // A foreign deposit address in the record: refused, nothing sent.
+    const redirected = writeTransfer(e.store, e.scope, { ...rec, depositAddress: attacker });
+    await expect(sendDepositTokens(e, redirected, REGISTRY)).rejects.toThrow(/not your account's/);
+    await expect(sendDepositGas(e, redirected, REGISTRY)).rejects.toThrow(/not your account's/);
+    // A token the bank does not bridge (or a registry token with another colour): refused.
+    const unknown = writeTransfer(e.store, e.scope, { ...rec, erc20: attacker });
+    await expect(sendDepositTokens(e, unknown, REGISTRY)).rejects.toThrow(/does not bridge/);
+    const recoloured = writeTransfer(e.store, e.scope, { ...rec, colour: 'cd'.repeat(32) });
+    await expect(sendDepositGas(e, recoloured, REGISTRY)).rejects.toThrow(/does not bridge/);
+    // Another account (whose deposit address the attacker controls): this wallet is not its device.
+    const theirs = writeTransfer(e.store, e.scope, { ...rec, account: 'ef'.repeat(32), depositAddress: undefined });
+    await expect(sendDepositTokens(e, theirs, REGISTRY)).rejects.toThrow(/not a device of this account/);
+    // No registry yet: nothing is sent either.
+    await expect(sendDepositTokens(e, rec, null)).rejects.toThrow(/does not bridge/);
+    expect(sends()).toBe(0);
+    expect(signatures(wal.calls)).toBe(0);
+    // The page shows exactly the arguments the wallet will get.
+    expect(depositFunding(STAGENET, REGISTRY, rec)).toEqual({
+      account: ACCOUNT,
+      depositAddress: '0xEb5A392eeee639C23434C1FA8bccbF6bC730377C',
+      erc20: tokens.stkA.sepoliaAddress,
+      symbol: 'stkA',
+      decimals: 6,
     });
   });
 
@@ -418,6 +455,7 @@ describe('following, resuming and finishing a transfer (L-BRG.1–.3)', () => {
     expect(coins).toHaveLength(1);
     expect(coins[0]).toMatchObject({ ...coin, inInbox: true, commitment: contractCoinCommitment(coin, ACCOUNT) });
     expect(outcomeText(t)).toEqual({ kind: 'ok', text: '1.00 wStkA arrived in your account.' });
+    expectImportRoundTrip(e.store, e.scope);
   });
 
   it('says clearly when an ERC20 returned false, when a withdrawal was refunded, and when the MPC is slow', () => {
@@ -540,5 +578,6 @@ describe('withdrawal (L-BRG.2)', () => {
       inInbox: false,
       origin: 'change',
     });
+    expectImportRoundTrip(e.store, e.scope);
   });
 });

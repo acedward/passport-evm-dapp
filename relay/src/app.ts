@@ -1,6 +1,6 @@
 // The relay's HTTP API (Hono). Routes:
 //
-//   GET  /health                        FR-013 health (200 ok/degraded, 503 down)
+//   GET  /health                        FR-013 health (200 ok/degraded, 503 down; rate-limited, F-B1)
 //   GET  /v1/config                     public configuration
 //   GET  /v1/auth/nonce                 a single-use nonce for a RelayAction authorisation
 //   POST /v1/actions/:action            THE ONLY state-changing route: every action is authorised
@@ -32,6 +32,7 @@ import {
   type RelayActionName,
 } from '@mnbank/core';
 
+import type { AdmissionOutcome } from './actions/admission.js';
 import type { ActionDefinition } from './actions/catalogue.js';
 import type { NonceStore } from './auth/nonces.js';
 import { verifyRelayActionRequest, type VerifyOutcome } from './auth/verifiers.js';
@@ -66,7 +67,7 @@ export interface AppDeps {
   now?: () => number;
 }
 
-type ErrorStatus = 400 | 401 | 404 | 413 | 429 | 500 | 501 | 503;
+type ErrorStatus = 400 | 401 | 403 | 404 | 413 | 429 | 500 | 501 | 503;
 
 const apiError = (c: Context, status: ErrorStatus, code: string, message: string, detail?: string) =>
   c.json({ error: { code, message, ...(detail ? { detail } : {}) } }, status);
@@ -96,6 +97,7 @@ export function createApp(deps: AppDeps): Hono {
   const clientAddress = deps.clientAddress ?? defaultClientAddress(config.trustProxy);
   const limits = config.limits;
   const readLimiter = new RateLimiter(limits.readsPerMinute);
+  const healthLimiter = new RateLimiter(limits.healthPerMinute);
   const nonceLimiter = new RateLimiter(limits.noncesPerMinute);
   const actionLimiter = new RateLimiter(limits.actionsPerMinute);
   const ownerLimiter = new RateLimiter(limits.actionsPerOwnerPerMinute);
@@ -136,6 +138,9 @@ export function createApp(deps: AppDeps): Hono {
   // ── reads ──────────────────────────────────────────────────────────────────
 
   app.get(API_PATHS.health, async (c) => {
+    // Its own bucket (security review F-B1), so a monitor is never starved by a customer's reads.
+    const refused = limited(healthLimiter, clientAddress(c), c);
+    if (refused) return refused;
     const h = await deps.health();
     return c.json(h, h.status === 'down' ? 503 : 200);
   });
@@ -314,11 +319,54 @@ export function createApp(deps: AppDeps): Hono {
         return apiError(c, 401, 'unauthorised', outcome.reason, outcome.code);
       }
 
+      // Security review F-B6: arguments a gated call's own signature cannot cover (a withdrawal's
+      // recipient encryption key) are bound by a RelayAction envelope over the WHOLE body, signed
+      // by the same device; verified here (its nonce spent) and again by the executor.
+      if (outcome.kind === 'passport-call' && def.envelope?.(payload.data)) {
+        const envelope = verifyRelayActionRequest(request.auth, {
+          action: def.action,
+          network: config.network.name,
+          chainId: config.network.evm.chainId,
+          account,
+          payload: request.payload,
+          maxTtlSeconds: limits.authMaxTtlSeconds,
+          nonces: deps.nonces,
+          now: now(),
+        });
+        const refusal = !envelope.ok
+          ? { code: envelope.code, reason: `the relay envelope: ${envelope.reason}` }
+          : envelope.signer.toLowerCase() !== outcome.signer.toLowerCase()
+            ? { code: 'wrong-signer', reason: 'the relay envelope is not signed by the device that signed the call' }
+            : null;
+        if (refusal) {
+          outcome.release?.();
+          log.info('action refused', { action: def.action, code: `envelope ${refusal.code}` });
+          return apiError(c, 401, 'unauthorised', refusal.reason, refusal.code);
+        }
+      }
+
       const ownerRefused = limited(ownerLimiter, outcome.signer.toLowerCase(), c);
       if (ownerRefused) {
         // Refused after the authorisation was accepted: let the same signature be sent again later.
         outcome.release?.();
         return ownerRefused;
+      }
+
+      // The action's own admission check (security review F-B2, F-B3), before any queue slot.
+      let admitted: AdmissionOutcome = { ok: true };
+      if (def.admit) {
+        try {
+          admitted = await def.admit({ account, payload: payload.data, signer: outcome.signer });
+        } catch (e) {
+          outcome.release?.();
+          log.warn('admission check failed', { action: def.action, error: e });
+          return apiError(c, 503, 'chain-unavailable', 'the account could not be checked right now; try again shortly');
+        }
+        if (!admitted.ok) {
+          outcome.release?.();
+          log.info('action refused', { action: def.action, code: admitted.detail ?? admitted.code });
+          return apiError(c, admitted.status, admitted.code, admitted.reason, admitted.detail);
+        }
       }
 
       const job = deps.queue.submit({
@@ -336,6 +384,7 @@ export function createApp(deps: AppDeps): Hono {
       });
       if (!job) {
         outcome.release?.();
+        if (admitted.ok) admitted.release?.();
         return apiError(c, 503, 'busy', 'the relay is at capacity; try again later');
       }
       log.info('action queued', { action: def.action, requestId: job.requestId });

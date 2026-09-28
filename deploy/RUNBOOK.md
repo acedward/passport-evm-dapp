@@ -56,12 +56,15 @@ and `curl`. A TLS reverse proxy (Caddy, nginx, a tunnel) for the public site.
 | What | Memory |
 |---|---|
 | Proof server, during a k=18 proof (every signed account call except registration) | about 8 GB; its limit is `PROOF_SERVER_MEM_LIMIT=12g` |
-| Relay | 1 to 2 GB; limit `RELAY_MEM_LIMIT=4g` |
+| Relay | 1 to 2 GB idle, **about 5 to 7 GB at its peak during a proof**; limit `RELAY_MEM_LIMIT=8g` |
 | Web | under 50 MB; limit 256 MB |
 | Key job, once, while it compiles | limit `KEYS_JOB_MEM_LIMIT=12g` |
 
-Plan for **16 GB of RAM** at least, and 24 GB to be comfortable. The relay proves one call at a
-time, so the proof server never needs more than one k=18 proof's memory.
+Plan for about **24 GB of RAM**: the relay (up to about 7 GB) and the proof server (about 8 GB)
+peak together during every k=18 proof. The relay proves one call at a time, so the proof server
+never needs more than one k=18 proof's memory. Keep `RELAY_MEM_LIMIT` at 8g or more: under the
+former 4 GiB limit, a host without swap can OOM-kill the relay in the middle of a proof, and the
+customer's job is lost (plan question Q25; measured in the live acceptance run).
 
 **Disk**: about 20 GB free before the first start. The images take about 1.8 GB, the key volume
 3.4 GB, and the key compile needs about 8 GB more while it runs (it deletes the extra afterwards).
@@ -415,7 +418,9 @@ for both transactions). The bank pays nothing on Sepolia for deposits.
 
 `GET /health` on the relay. From the host: `curl -s http://127.0.0.1:18080/health`. It is also
 reachable through the site at `/relay/health` (it holds public facts only). Probes of the kernel,
-batcher, proof server and Sepolia are cached for `HEALTH_CACHE_SECONDS` (15 s).
+batcher, proof server and Sepolia are cached for `HEALTH_CACHE_SECONDS` (15 s); one refresh runs
+at a time however many requests arrive, and the key volume is re-scanned hourly. `/health` is
+rate-limited per client address (`RATE_LIMIT_HEALTH_PER_MIN`, 60), so poll it at most once a second.
 
 The HTTP status is 200 for `ok` and `degraded`, and 503 for `down`. Docker marks the relay
 unhealthy only when `/health` answers 503.
@@ -471,8 +476,9 @@ Also watch:
 | Bridge deposits | one open at a time per account | Each takes about 20 minutes. Different accounts run in parallel. |
 | Batcher | **1,000 requests per 24 hours per IP per target, and 1,000 per 24 hours for all clients together** | Every take the relay settles is one request from the relay's IP, so the bank can settle at most 1,000 takes a day, and fewer if other clients of the staging batcher use the shared allowance. Past it, takes fail until the window moves. |
 | Kernel | 600 requests per minute per IP | Browsers read prices directly; the relay posts offers. |
-| Relay, per customer address | reads 240/min, nonces 30/min, actions 10/min, actions per account owner 5/min | Tune with `RATE_LIMIT_*`. |
-| Relay jobs | kept `JOB_TTL_SECONDS` (24 h), at most `JOB_MAX` (10,000) | In memory only. |
+| Relay, per customer address | reads 240/min, `/health` 60/min, nonces 30/min, actions 10/min, actions per account owner 5/min | Tune with `RATE_LIMIT_*`. |
+| Relay jobs | kept `JOB_TTL_SECONDS` (24 h), at most `JOB_MAX` (10,000) | In memory only. When full, finished outcomes are dropped early (failed ones first) to make room; the relay answers "busy" only when `JOB_MAX` jobs are waiting or running. |
+| Change re-filing (`append-inbox`) | only against the relay's single-use entitlement for that change, at most `APPEND_INBOX_MAX_PER_ACCOUNT_PER_DAY` (20) per account per day | The relay issues the entitlement in the withdrawal's result; the page keeps it with the change coin (valid `APPEND_ENTITLEMENT_TTL_SECONDS`, 30 days). Its key is derived from the sponsor seed: a NEW sponsor seed voids the entitlements already issued, so customers must secure their change before a sponsor change. |
 | Fee margin | `SPONSOR_FEE_BLOCKS_MARGIN=20` | The sponsor pays about 2.5 times each fee. At 5 the registration's activation is refused (plan question Q19). |
 | Scale | a demo bank | A handful of customers at a time, one proof at a time, with a visible queue. |
 
@@ -487,13 +493,16 @@ Put this where customers read it (the site says the same in its pages):
 - **Clearing the browser, or CLEAR ALL without an export, loses the account for good.** The bank
   cannot recover it: without the secret, the coins cannot be found or spent.
 - **One account per wallet address per browser.** A new browser or computer does not find your
-  account by itself: Import your export there.
+  account by itself: Import your export there. Import takes only an export MN Bank itself made, for
+  the connected wallet, and writes it all or nothing. It never replaces your account's secret key
+  with a different one unless the chain says the new key is your account's.
 - **One live offer at a time.** Any other signed action (a withdrawal, a bridge transfer, a second
   offer) cancels a live offer. The page warns first.
 - **One coin per payment.** The largest amount you can pay or withdraw at once is your largest
   single coin ("largest single payment" on the page).
 - **A withdrawal that leaves change asks for a second signature**, to record the change in your
-  account.
+  account. **Sending to a Midnight wallet address** asks for one more before it: it confirms the
+  recipient's address (its encryption key) to the bank.
 - **Bridge transfers take about 20 minutes** (Sepolia finality). You can close the page; the
   transfer resumes from Transfers when you come back.
 - **These are test networks and test tokens.** There is no faucet: ask the bank for test tokens.
@@ -513,7 +522,12 @@ These are accepted for this version (plan question Q9), and the UI explains them
   its first deploy pays its DUST again). Whenever you can, restart the relay when every lane in
   `/health` `queue.lanes` shows 0 running and 0 waiting;
 - proofs one at a time, and withdrawals one at a time for the whole bank (section 10);
-- stocks without a bid show "no liquidity" and are left out of the total value.
+- stocks without a bid show "no liquidity" and are left out of the total value;
+- change coins created on a relay older than the security-review fix F-B3 (the bank pays for
+  recording change in the inbox only against an entitlement it issued with that change) cannot be
+  recorded in the inbox after the upgrade. They stay spendable from the customer's browser, and
+  the customer's Export keeps them; only a restore from the chain alone would miss them (plan
+  question Q26, accepted).
 
 ## 13. Start, stop, upgrade and re-pin
 
@@ -548,6 +562,15 @@ docker compose -f deploy/compose.yml up -d
 The `keys` job re-verifies. If the new version changed a key input (the Passport commit, compactc,
 the Signet module, the kept keys), it compiles again first: stop the relay before
 (`docker compose stop relay`), keep about 12 GB of disk free, and run `up keys` attached.
+
+**Upgrading a deployment made from `423f44e`** (before the security-review fixes):
+
+- set `RELAY_MEM_LIMIT=8g` in your `deploy/.env` (a copy of the old `.env.example` says 4g, and it
+  overrides the new default);
+- rebuild and restart the relay and the web images **together**: the new relay refuses the old
+  page's change re-filing (it has no entitlement) and its payments to a Midnight wallet address
+  (they have no envelope), and the new page needs the new relay;
+- change that customers have not recorded yet cannot be recorded after the upgrade (section 12).
 
 ### 13.3 Re-pin when something upstream moves
 

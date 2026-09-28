@@ -229,6 +229,44 @@ export interface VerifyRelayActionOptions {
 
 const fail = (code: AuthFailureCode, reason: string): AuthResult => ({ ok: false, code, reason });
 
+/**
+ * What a signed relay action binds, WITHOUT its expiry and nonce (security review F-B6): the action,
+ * network, account and the exact payload, signed by the owner. An executor uses it to check again,
+ * when a queued job's turn comes, an envelope the route already verified in full (its nonce is
+ * spent, and it may have expired while the job waited).
+ */
+export function checkRelayActionBinding(
+  signed: unknown,
+  options: Pick<VerifyRelayActionOptions, 'expectedAction' | 'network' | 'chainId' | 'expectedAccount' | 'payload'>,
+): AuthResult {
+  const parsed = SignedRelayActionSchema.safeParse(signed);
+  if (!parsed.success) return fail('malformed', 'the authorisation is missing or malformed');
+  const { message, signature } = parsed.data;
+  if (message.action !== options.expectedAction)
+    return fail('wrong-action', `signed for "${message.action}", not "${options.expectedAction}"`);
+  if (message.network !== options.network) return fail('wrong-network', `signed for network "${message.network}"`);
+  const expectedAccount =
+    options.expectedAccount === undefined
+      ? NO_ACCOUNT
+      : `0x${options.expectedAccount.replace(/^0x/, '').toLowerCase()}`;
+  if (message.account !== expectedAccount) return fail('wrong-account', 'signed for another account');
+  let hash: string;
+  try {
+    hash = payloadHash(options.payload);
+  } catch {
+    return fail('malformed', 'the payload cannot be hashed');
+  }
+  if (message.payloadHash !== hash) return fail('payload-mismatch', 'the signature does not cover this request body');
+  let signer: string;
+  try {
+    signer = recoverRelayActionSigner(message, signature, options.chainId);
+  } catch {
+    return fail('bad-signature', 'the signature is not valid');
+  }
+  if (signer !== getAddress(message.owner)) return fail('wrong-signer', 'the signature is not from the owner');
+  return { ok: true, signer, message };
+}
+
 /** Check a signed relay action against the route it arrived on. Pure except `consumeNonce`. */
 export function verifyRelayAction(signed: unknown, options: VerifyRelayActionOptions): AuthResult {
   const parsed = SignedRelayActionSchema.safeParse(signed);

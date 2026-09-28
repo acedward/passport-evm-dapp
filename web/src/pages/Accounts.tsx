@@ -580,8 +580,9 @@ function SendForm({
           />
         </Field>
         <p className="small muted panel-intro">
-          You sign once to send. The change stays in your account; the bank then asks for a second signature to record
-          it in your account&apos;s inbox, so it can be restored from the chain.
+          You sign twice to send: once for the payment, and once to confirm the recipient&apos;s address to the bank.
+          The change stays in your account; the bank then asks for one more signature to record it in your
+          account&apos;s inbox, so it can be restored from the chain.
         </p>
         {error && (
           <Notice tone="danger" role="alert" data-testid="send-error" className="panel-intro">

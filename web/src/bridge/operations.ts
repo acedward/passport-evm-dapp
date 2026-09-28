@@ -37,6 +37,7 @@ import {
   type NetworkProfile,
   type StoredCoin,
   type TokenEntry,
+  type TokenRegistry,
 } from '@mnbank/core';
 import {
   bridgeDepositStartRequest,
@@ -188,9 +189,69 @@ export function draftDeposit(env: BridgeEnv, account: string, token: TokenEntry,
   });
 }
 
+// ── The funding transactions' arguments (security review F-B4) ──────────────────────────
+
+/** Exactly what the deposit's two wallet transactions send, and where. */
+export interface DepositFunding {
+  account: string;
+  /** Derived from the network and the account, never read from the stored record. */
+  depositAddress: string;
+  /** The ERC20 contract, from the bank's token registry. */
+  erc20: string;
+  symbol: string;
+  decimals: number;
+}
+
+/**
+ * The deposit's funding arguments, DERIVED here (security review F-B4): the deposit address from
+ * the configured network and the transfer's account, the ERC20 from the token registry. A stored
+ * record (which an Import may have written) only names the account and the token; if its own
+ * copies of the address or the token disagree, nothing is sent.
+ */
+export function depositFunding(
+  network: NetworkProfile,
+  tokens: TokenRegistry | null,
+  rec: TransferRecord,
+): DepositFunding {
+  if (rec.kind !== 'deposit') throw new OperationError('This transfer is not a deposit.');
+  const account = lower(rec.account).replace(/^0x/, '');
+  const depositAddress = depositAddressOf(network, account);
+  if (rec.depositAddress !== undefined && lower(rec.depositAddress) !== lower(depositAddress)) {
+    throw new OperationError(
+      "This deposit names a deposit address that is not your account's, so nothing was sent. Cancel it and start again.",
+    );
+  }
+  const token = (tokens?.tokens ?? []).find(
+    (t) => t.sepoliaAddress !== '' && t.vault !== '' && lower(t.sepoliaAddress) === lower(rec.erc20),
+  );
+  if (!token || lower(token.midnightColour) !== lower(rec.colour) || token.decimals !== rec.decimals) {
+    throw new OperationError(
+      'This deposit names a token the bank does not bridge, so nothing was sent. Cancel it and start again.',
+    );
+  }
+  return { account, depositAddress, erc20: token.sepoliaAddress, symbol: token.symbol, decimals: token.decimals };
+}
+
+/** The same, after checking on chain that the connected wallet is a device of that account (the
+ *  page's account record can come from an Import too). */
+async function verifiedDepositFunding(
+  env: BridgeEnv,
+  tokens: TokenRegistry | null,
+  rec: TransferRecord,
+): Promise<DepositFunding> {
+  const f = depositFunding(env.network, tokens, rec);
+  await gatedContext(env, f.account);
+  return f;
+}
+
 /** What the deposit address still lacks for this deposit (after earlier queued ones). */
-export async function depositShortfall(env: BridgeEnv, rec: TransferRecord) {
-  const held = await sepoliaBalances(env, rec.depositAddress!, rec.erc20);
+export async function depositShortfall(env: BridgeEnv, rec: TransferRecord, tokens: TokenRegistry | null) {
+  const f = depositFunding(env.network, tokens, rec);
+  return shortfallAt(env, rec, f);
+}
+
+async function shortfallAt(env: BridgeEnv, rec: TransferRecord, f: DepositFunding) {
+  const held = await sepoliaBalances(env, f.depositAddress, f.erc20);
   const a = ahead(env, rec.account, rec.erc20, rec.id);
   const needToken = BigInt(rec.amount) + a.sameToken;
   const needGas = maxGasCostWei(DEFAULT_EVM_GAS) * BigInt(a.sweeps + 1);
@@ -202,21 +263,33 @@ export async function depositShortfall(env: BridgeEnv, rec: TransferRecord) {
   };
 }
 
-/** Wallet transaction 1: the ERC20 the sweep will move (only what is missing). */
-export async function sendDepositTokens(env: BridgeEnv, rec: TransferRecord): Promise<string | null> {
-  const { tokenShort } = await depositShortfall(env, rec);
+/** Wallet transaction 1: the ERC20 the sweep will move (only what is missing), to the DERIVED
+ *  deposit address, on the registry's contract (F-B4). */
+export async function sendDepositTokens(
+  env: BridgeEnv,
+  rec: TransferRecord,
+  tokens: TokenRegistry | null,
+): Promise<string | null> {
+  const f = await verifiedDepositFunding(env, tokens, rec);
+  const { tokenShort } = await shortfallAt(env, rec, f);
   if (tokenShort === 0n) return null;
-  const data = `0xa9059cbb${lower(rec.depositAddress!).slice(2).padStart(64, '0')}${tokenShort.toString(16).padStart(64, '0')}`;
-  return sendAndWait(env, { to: rec.erc20, data, value: '0x0' }, (h) =>
+  const data = `0xa9059cbb${lower(f.depositAddress).slice(2).padStart(64, '0')}${tokenShort.toString(16).padStart(64, '0')}`;
+  return sendAndWait(env, { to: f.erc20, data, value: '0x0' }, (h) =>
     patchTransfer(env.store, env.scope, rec.account, rec.id, (r) => ({ ...r, funding: { ...r.funding, tokenTx: h } })),
   );
 }
 
-/** Wallet transaction 2: the ETH the sweep's gas may cost (gasLimit × maxFeePerGas; only what is missing). */
-export async function sendDepositGas(env: BridgeEnv, rec: TransferRecord): Promise<string | null> {
-  const { gasShort } = await depositShortfall(env, rec);
+/** Wallet transaction 2: the ETH the sweep's gas may cost (gasLimit × maxFeePerGas; only what is
+ *  missing), to the DERIVED deposit address (F-B4). */
+export async function sendDepositGas(
+  env: BridgeEnv,
+  rec: TransferRecord,
+  tokens: TokenRegistry | null,
+): Promise<string | null> {
+  const f = await verifiedDepositFunding(env, tokens, rec);
+  const { gasShort } = await shortfallAt(env, rec, f);
   if (gasShort === 0n) return null;
-  return sendAndWait(env, { to: rec.depositAddress!, value: hexQty(gasShort) }, (h) =>
+  return sendAndWait(env, { to: f.depositAddress, value: hexQty(gasShort) }, (h) =>
     patchTransfer(env.store, env.scope, rec.account, rec.id, (r) => ({ ...r, funding: { ...r.funding, gasTx: h } })),
   );
 }
@@ -232,7 +305,7 @@ export async function startDeposit(env: BridgeEnv, recIn: TransferRecord): Promi
   if (earlier)
     throw new OperationError('Wait until your earlier transfer has started on Midnight (about two minutes).');
   const quote = await env.relay.bridgeQuote('deposit', rec.account, rec.erc20);
-  if (lower(quote.payer) !== lower(rec.depositAddress!)) {
+  if (lower(quote.payer) !== lower(depositAddressOf(env.network, rec.account))) {
     throw new OperationError('The bank quoted a different deposit address than this page derives. Nothing was signed.');
   }
   if (quote.accountOpen.length > 0 && quote.lane.running === 0) {
@@ -371,6 +444,7 @@ export function applyJob(env: BridgeEnv, rec: TransferRecord, job: JobView): Tra
     next.change = {
       coin: { nonce: started.changeNonce, color: started.changeColour, value: started.changeValue },
       secured: false,
+      ...(started.changeEntitlement ? { entitlement: started.changeEntitlement } : {}),
     };
   }
   if (job.state === 'succeeded') {
@@ -547,10 +621,19 @@ export function applyCoins(env: BridgeEnv, rec: TransferRecord): void {
       : c,
   );
   if (r.coin && !have.has(key(r.coin))) {
-    next.push({ ...localCoin(r.coin, rec.account, 'inbox', r.settleTx), inInbox: r.entryMatchesCoin });
+    next.push({
+      ...localCoin(r.coin, rec.account, 'inbox', r.settleTx),
+      inInbox: r.entryMatchesCoin,
+      ...(r.coinEntitlement ? { appendEntitlement: r.coinEntitlement } : {}),
+    });
   }
   const change = r.change ?? rec.change?.coin ?? null;
-  if (change && !have.has(key(change))) next.push(localCoin(change, rec.account, 'change', r.startTx ?? undefined));
+  const changeEntitlement = r.changeEntitlement ?? rec.change?.entitlement;
+  if (change && !have.has(key(change)))
+    next.push({
+      ...localCoin(change, rec.account, 'change', r.startTx ?? undefined),
+      ...(changeEntitlement ? { appendEntitlement: changeEntitlement } : {}),
+    });
   env.store.put(env.scope, 'coins', next, { account: rec.account });
 }
 
@@ -569,10 +652,12 @@ export async function secureTransferChange(env: BridgeEnv, recIn: TransferRecord
     });
   }
   await syncAccount(env, rec.account);
-  const coin =
+  const known =
     readCoins(env.store, env.scope, rec.account).find(
       (c) => c.commitment === contractCoinCommitment(change.coin, rec.account),
     ) ?? localCoin(change.coin, rec.account, 'change');
+  const entitlement = known.appendEntitlement ?? change.entitlement ?? rec.result?.changeEntitlement;
+  const coin = entitlement ? { ...known, appendEntitlement: entitlement } : known;
   if (coin.inInbox) {
     return writeTransfer(env.store, env.scope, { ...rec, change: { ...change, secured: true } });
   }

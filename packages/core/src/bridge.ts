@@ -192,6 +192,10 @@ export interface BridgeResult {
   change: BridgeCoinJson | null;
   /** True when the settle's inbox entry describes the minted coin. */
   entryMatchesCoin: boolean;
+  /** The single-use entitlement to file the change's inbox entry (security review F-B3). */
+  changeEntitlement?: string;
+  /** The same for the minted coin, when the settle's entry does not describe it. */
+  coinEntitlement?: string;
   /** `relay` when the bank closed a request its owner had left open (a stale request, Q21 A); the
    *  settles are permissionless and pinned to the account, so the outcome is the same either way. */
   closedBy?: 'owner' | 'relay';

@@ -10,7 +10,9 @@ import {
   bytesToHex,
   contractCoinCommitment,
   contractCoinNullifier,
+  formatShieldedAddress,
   hexToBytes,
+  payloadHash,
   recoverRelayActionSigner,
   type AccountStateView,
   type ActionRequest,
@@ -40,6 +42,7 @@ import { readCoins, readRoster, readSecret } from '../src/passport/records.js';
 import type { RelayClient } from '../src/relay/client.js';
 import { recordKey } from '../src/store/schema.js';
 import { LocalStore } from '../src/store/store.js';
+import { expectImportRoundTrip } from './roundtrip.js';
 
 const ACCOUNT = 'ac'.repeat(32);
 const SALT = '5a'.repeat(32);
@@ -170,6 +173,7 @@ describe('openAccount (L-ACC.1)', () => {
     expect(readSecret(e.store, e.scope, null)).toBeNull();
     expect(readRoster(e.store, e.scope, ACCOUNT)).toEqual({ useCounter: '0' });
     expect(JSON.stringify(Object.keys(localStorage))).not.toContain('/job/');
+    expectImportRoundTrip(e.store, e.scope); // F-B4: what the page wrote imports unchanged
   });
 
   it('keeps the key pair for a retry when the relay fails, and reuses it', async () => {
@@ -250,7 +254,12 @@ describe('the inbox walk and the gated calls (L-ACC.2 to L-ACC.5)', () => {
   it('withdraws from the smallest covering coin with ONE signature, and keeps the change', async () => {
     const { w, relay, e, calls } = await fundedAccount();
     await syncAccount(e, ACCOUNT);
-    relay.results.withdraw = { txId: 'wd1', change: { nonce: '09'.repeat(32), color: COLOUR, value: '10000000' } };
+    const changeEntitlement = `ae1.${ACCOUNT}.${'0e'.repeat(32)}.99999999999.${'ac'.repeat(32)}`;
+    relay.results.withdraw = {
+      txId: 'wd1',
+      change: { nonce: '09'.repeat(32), color: COLOUR, value: '10000000' },
+      changeEntitlement,
+    };
     const out = await withdrawToWallet(e, ACCOUNT, {
       color: COLOUR,
       amount: 30_000_000n,
@@ -276,6 +285,8 @@ describe('the inbox walk and the gated calls (L-ACC.2 to L-ACC.5)', () => {
     expect(TypedDataEncoder.hash(call.typedData.domain, types, call.typedData.message)).toBe(call.digestHex);
 
     expect(out.change).toMatchObject({ value: '10000000', inInbox: false, origin: 'change', mtIndex: null });
+    // The bank's entitlement to file the change (security review F-B3) is kept with it.
+    expect(out.change?.appendEntitlement).toBe(changeEntitlement);
     const coins = readCoins(e.store, e.scope, ACCOUNT);
     expect(coins.find((c) => c.value === '40000000')).toMatchObject({ spent: true, spentTx: 'wd1' });
     expect(coins.find((c) => c.value === '10000000')).toMatchObject({ inInbox: false });
@@ -301,6 +312,33 @@ describe('the inbox walk and the gated calls (L-ACC.2 to L-ACC.5)', () => {
       mtIndex: '300',
       inInbox: false,
     });
+    expectImportRoundTrip(e.store, e.scope);
+  });
+
+  // Security review F-B6: the recipient's encryption key is outside the contract's challenge, so a
+  // payment to a wallet address carries a RelayAction envelope over the whole body, same device.
+  it('pays a wallet address with a second signature that binds its encryption key', async () => {
+    const { w, relay, e, calls } = await fundedAccount();
+    await syncAccount(e, ACCOUNT);
+    relay.results.withdraw = { txId: 'wd2', change: null };
+    const recipient = { coinPublicKey: '44'.repeat(32), encryptionPublicKey: '55'.repeat(32) };
+    await withdrawToWallet(e, ACCOUNT, {
+      color: COLOUR,
+      amount: 40_000_000n,
+      recipient: formatShieldedAddress(recipient, 'undeployed'),
+    });
+    expect(calls).toEqual(['eth_signTypedData_v4', 'eth_signTypedData_v4']);
+    const sub = relay.submitted[0]!;
+    const payload = sub.request.payload as Record<string, unknown>;
+    expect(payload).toMatchObject({ recipient: '44'.repeat(32), recipientEncryptionKey: '55'.repeat(32) });
+    const auth = sub.request.auth as SignedRelayAction;
+    expect(auth.message).toMatchObject({
+      action: 'withdraw',
+      network: 'undeployed',
+      account: `0x${ACCOUNT}`,
+      payloadHash: payloadHash(payload), // the WHOLE body, encryption key included
+    });
+    expect(recoverRelayActionSigner(auth.message, auth.signature)).toBe(w.address);
   });
 
   it('refuses an amount no single coin covers before asking the wallet', async () => {
@@ -317,14 +355,25 @@ describe('the inbox walk and the gated calls (L-ACC.2 to L-ACC.5)', () => {
     relay.results['append-inbox'] = { txId: 'ai1' };
     const change = { nonce: '09'.repeat(32), color: COLOUR, value: '10000000' };
     const { localCoin } = await import('@mnbank/core');
-    const r = await secureChange(e, ACCOUNT, localCoin(change, ACCOUNT));
+    const appendEntitlement = `ae1.${ACCOUNT}.${'0e'.repeat(32)}.99999999999.${'ac'.repeat(32)}`;
+    const r = await secureChange(e, ACCOUNT, { ...localCoin(change, ACCOUNT), appendEntitlement });
     expect(r.txId).toBe('ai1');
     expect(calls).toEqual(['eth_signTypedData_v4']);
-    const payload = relay.submitted[0]!.request.payload as { entry: string };
+    const payload = relay.submitted[0]!.request.payload as { entry: string; entitlement?: string };
+    expect(payload.entitlement).toBe(appendEntitlement); // security review F-B3
     const opened = await openEntryPortable(sk, hexToBytes(payload.entry, 192));
     expect(
       opened && { nonce: bytesToHex(opened.nonce), color: bytesToHex(opened.color), value: opened.value.toString() },
     ).toEqual(change);
     expect(recordKey(e.scope, 'job', { account: ACCOUNT, id: '1'.padStart(32, '0') })).toBeTruthy();
+  });
+
+  it('says a coin the bank gave no entitlement for cannot be secured, before asking the wallet (F-B3)', async () => {
+    const { relay, e, calls } = await fundedAccount();
+    const { localCoin } = await import('@mnbank/core');
+    const coin = localCoin({ nonce: '09'.repeat(32), color: COLOUR, value: '10000000' }, ACCOUNT);
+    await expect(secureChange(e, ACCOUNT, coin)).rejects.toThrow(/no record of this coin as change/);
+    expect(calls).toEqual([]);
+    expect(relay.submitted).toEqual([]);
   });
 });

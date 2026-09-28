@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { RELAY_ACTIONS } from '@mnbank/core';
 
 import { STATE_CHANGING_ROUTES } from '../src/app.js';
-import { ACCOUNT, FakeSponsor, harness, newWallet, post, samplePayload, signedBody } from './harness.js';
+import { ACCOUNT, FakeSponsor, harness, newWallet, post, samplePayload, signedBody, testConfig } from './harness.js';
 
 describe('the relay routes', () => {
   it('has exactly one state-changing route, POST /v1/actions/:action, and it covers every action', () => {
@@ -177,6 +177,15 @@ describe('action request checks', () => {
 });
 
 describe('reads', () => {
+  it('rate-limits /health per client address in its own bucket (security review F-B1)', async () => {
+    const h = harness({ config: testConfig({ RATE_LIMIT_HEALTH_PER_MIN: '3' }) });
+    const statuses = [];
+    for (let i = 0; i < 4; i++) statuses.push((await h.app.request('/health')).status);
+    expect(statuses).toEqual([200, 200, 200, 429]);
+    // the read bucket is separate: account reads, jobs and the queue still answer
+    expect((await h.app.request('/v1/queue')).status).toBe(200);
+  });
+
   it('serves health, config, queue and 404s', async () => {
     const h = harness();
     expect((await h.app.request('/health')).status).toBe(200);
