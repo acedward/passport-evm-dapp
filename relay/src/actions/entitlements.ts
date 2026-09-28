@@ -16,7 +16,10 @@
 // Single use: an admitted token's op is held while its job runs, marked spent when the append
 // succeeds, and released when it fails (so the customer can retry). Spent ops are remembered in
 // memory until their token expires. A restart forgets them, so a per-account daily budget of
-// admitted appends is the backstop.
+// QUEUED appends is the backstop. The budget counts an append once it is queued (an attempted
+// execution: its job may prove and pay before it fails, so a failed job keeps its charge). A
+// request the route refuses after admission (a full queue) queued nothing, and its admission's
+// `release` gives back both the entitlement and the charge (security review F-B7).
 
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
@@ -56,7 +59,7 @@ export class AppendEntitlements {
   private readonly pending = new Set<string>();
   /** Ops whose append succeeded → the token's expiry (unix s). */
   private readonly spent = new Map<string, number>();
-  /** Account → the unix seconds of each append admitted in the last 24 h. */
+  /** Account → the unix seconds of each append queued in the last 24 h (see the header). */
   private readonly admitted = new Map<string, number[]>();
 
   constructor(private readonly opts: AppendEntitlementOptions) {
@@ -96,7 +99,9 @@ export class AppendEntitlements {
   /**
    * Admission of an append (before any queue slot, proof or DUST): a valid entitlement of this
    * account, not spent and not already in use, within the account's daily budget. The op is held
-   * until `spend` or `release`.
+   * and the budget charged; once the job is queued, `spend` or `release(token)` settles the op and
+   * the charge stays. If the route refuses the request after all, the outcome's `release` undoes
+   * both (security review F-B7).
    */
   admit(token: unknown, account: string | undefined): AdmissionOutcome {
     this.sweep();
@@ -113,17 +118,39 @@ export class AppendEntitlements {
     const acc = normAccount(account);
     const times = this.admitted.get(acc) ?? [];
     if (times.length >= this.opts.maxPerAccountPerDay) {
+      const oldest = times.reduce((m, t) => Math.min(m, t), Infinity);
+      const hours = Math.max(1, Math.ceil((oldest + DAY - this.now()) / 3600));
       return {
         ok: false,
         status: 429,
         code: 'append-budget',
-        reason: `this account has filed ${times.length} inbox entries in the last 24 hours, the most the bank pays for; try again tomorrow`,
+        reason: `this account has had ${times.length} inbox appends queued in the last 24 hours, the most the bank pays for (refused requests do not count); try again in about ${hours} hour${hours === 1 ? '' : 's'}`,
       };
     }
-    times.push(this.now());
+    const at = this.now();
+    times.push(at);
     this.admitted.set(acc, times);
     this.pending.add(v.op);
-    return { ok: true, release: () => this.pending.delete(v.op) };
+    let released = false;
+    return {
+      ok: true,
+      // Nothing was queued after all: give back the entitlement AND the day's charge, once.
+      release: () => {
+        if (released) return;
+        released = true;
+        this.pending.delete(v.op);
+        this.uncharge(acc, at);
+      },
+    };
+  }
+
+  /** Remove one charge made at `at` (the array may have been swept since: look it up again). */
+  private uncharge(acc: string, at: number): void {
+    const times = this.admitted.get(acc);
+    const i = times ? times.lastIndexOf(at) : -1;
+    if (!times || i < 0) return;
+    times.splice(i, 1);
+    if (times.length === 0) this.admitted.delete(acc);
   }
 
   /** The op of a well-formed token (no checks), or null. */
@@ -139,7 +166,8 @@ export class AppendEntitlements {
     this.spent.set(op, Number((token as string).split('.')[3]));
   }
 
-  /** The append failed: the customer may try again with the same token. */
+  /** The append's job failed: the customer may try again with the same token. The day's charge
+   *  stays (the job was queued and may have proved and paid; see the header). */
   release(token: unknown): void {
     const op = this.opOf(token);
     if (op) this.pending.delete(op);

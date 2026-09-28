@@ -15,8 +15,9 @@ export interface AdmissionRequest {
 export type AdmissionOutcome =
   | {
       ok: true;
-      /** Undo what the check claimed (a single-use entitlement) when the route refuses the request
-       *  after all (a full queue), so the customer can send it again. */
+      /** Undo everything the check claimed (a single-use entitlement, and the day's append
+       *  allowance) when the route refuses the request after all (a full queue), so the customer
+       *  can send it again and is charged nothing (security review F-B7). Idempotent. */
       release?: () => void;
     }
   | {
