@@ -63,6 +63,7 @@ import {
   type TokenRegistry,
 } from '@mnbank/core';
 
+import type { AdmissionCheck } from '../actions/admission.js';
 import type { Logger } from '../log.js';
 import { PublicError, type JobContext, type JobExecutor } from '../queue/jobs.js';
 import type { Attestation, BridgeBackend, RelayOutcome, RelayProgress, SettleCircuit, StartAuth } from './backend.js';
@@ -328,6 +329,22 @@ export class BridgeService {
       this.deps.releaseDigest(v.digestHex);
       throw e;
     }
+  };
+
+  /** Admission of a resume (security review F-B2): the signer must be a device of the account
+   *  BEFORE the request takes a queue slot. The executor checks again when its turn comes. */
+  readonly admitResume: AdmissionCheck = async ({ account, signer }) => {
+    const acc = normaliseHex(account ?? '');
+    if (this.deps.isDevice && !(await this.deps.isDevice(acc, signer))) {
+      return {
+        ok: false,
+        status: 401,
+        code: 'unauthorised',
+        reason: 'only a device of this account can resume its transfers',
+        detail: 'wrong-signer',
+      };
+    }
+    return { ok: true };
   };
 
   readonly resumeExecutor: JobExecutor = async (raw, ctx) => {

@@ -474,7 +474,7 @@ Also watch:
 | Batcher | **1,000 requests per 24 hours per IP per target, and 1,000 per 24 hours for all clients together** | Every take the relay settles is one request from the relay's IP, so the bank can settle at most 1,000 takes a day, and fewer if other clients of the staging batcher use the shared allowance. Past it, takes fail until the window moves. |
 | Kernel | 600 requests per minute per IP | Browsers read prices directly; the relay posts offers. |
 | Relay, per customer address | reads 240/min, `/health` 60/min, nonces 30/min, actions 10/min, actions per account owner 5/min | Tune with `RATE_LIMIT_*`. |
-| Relay jobs | kept `JOB_TTL_SECONDS` (24 h), at most `JOB_MAX` (10,000) | In memory only. |
+| Relay jobs | kept `JOB_TTL_SECONDS` (24 h), at most `JOB_MAX` (10,000) | In memory only. When full, finished outcomes are dropped early (failed ones first) to make room; the relay answers "busy" only when `JOB_MAX` jobs are waiting or running. |
 | Fee margin | `SPONSOR_FEE_BLOCKS_MARGIN=20` | The sponsor pays about 2.5 times each fee. At 5 the registration's activation is refused (plan question Q19). |
 | Scale | a demo bank | A handful of customers at a time, one proof at a time, with a visible queue. |
 

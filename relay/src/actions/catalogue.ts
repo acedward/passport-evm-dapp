@@ -24,6 +24,7 @@ import {
 } from '@mnbank/core';
 
 import type { AuthKind } from '../auth/verifiers.js';
+import type { AdmissionCheck } from './admission.js';
 import type { BridgeService } from '../bridge/service.js';
 import { PublicError, type JobExecutor } from '../queue/jobs.js';
 import { openSwapExecutor, takeExecutor, type TradeDeps } from '../trade/executors.js';
@@ -37,6 +38,8 @@ export interface ActionDefinition {
   /** Whether the action spends the sponsor's DUST (refused while the sponsor is not ready). */
   requiresSponsor: boolean;
   payload: z.ZodType<Record<string, unknown>>;
+  /** An extra check before the job is queued (./admission.ts; security review F-B2, F-B3). */
+  admit?: AdmissionCheck;
   executor: JobExecutor;
   /** The plan lane that implements the executor. */
   implementedBy: string;
@@ -130,7 +133,12 @@ export function withBridge(
     payload: BridgeWithdrawPayloadSchema,
     executor: bridge.withdrawExecutor,
   });
-  set('bridge-resume', { payload: BridgeResumePayloadSchema, executor: bridge.resumeExecutor });
+  // Only a device of the account may queue a resume (security review F-B2); the executor checks again.
+  set('bridge-resume', {
+    payload: BridgeResumePayloadSchema,
+    admit: bridge.admitResume,
+    executor: bridge.resumeExecutor,
+  });
   return map;
 }
 

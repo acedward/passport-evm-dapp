@@ -32,6 +32,7 @@ import {
   type RelayActionName,
 } from '@mnbank/core';
 
+import type { AdmissionOutcome } from './actions/admission.js';
 import type { ActionDefinition } from './actions/catalogue.js';
 import type { NonceStore } from './auth/nonces.js';
 import { verifyRelayActionRequest, type VerifyOutcome } from './auth/verifiers.js';
@@ -66,7 +67,7 @@ export interface AppDeps {
   now?: () => number;
 }
 
-type ErrorStatus = 400 | 401 | 404 | 413 | 429 | 500 | 501 | 503;
+type ErrorStatus = 400 | 401 | 403 | 404 | 413 | 429 | 500 | 501 | 503;
 
 const apiError = (c: Context, status: ErrorStatus, code: string, message: string, detail?: string) =>
   c.json({ error: { code, message, ...(detail ? { detail } : {}) } }, status);
@@ -325,6 +326,23 @@ export function createApp(deps: AppDeps): Hono {
         return ownerRefused;
       }
 
+      // The action's own admission check (security review F-B2, F-B3), before any queue slot.
+      let admitted: AdmissionOutcome = { ok: true };
+      if (def.admit) {
+        try {
+          admitted = await def.admit({ account, payload: payload.data, signer: outcome.signer });
+        } catch (e) {
+          outcome.release?.();
+          log.warn('admission check failed', { action: def.action, error: e });
+          return apiError(c, 503, 'chain-unavailable', 'the account could not be checked right now; try again shortly');
+        }
+        if (!admitted.ok) {
+          outcome.release?.();
+          log.info('action refused', { action: def.action, code: admitted.detail ?? admitted.code });
+          return apiError(c, admitted.status, admitted.code, admitted.reason, admitted.detail);
+        }
+      }
+
       const job = deps.queue.submit({
         action: def.action,
         lane: def.lane,
@@ -340,6 +358,7 @@ export function createApp(deps: AppDeps): Hono {
       });
       if (!job) {
         outcome.release?.();
+        if (admitted.ok) admitted.release?.();
         return apiError(c, 503, 'busy', 'the relay is at capacity; try again later');
       }
       log.info('action queued', { action: def.action, requestId: job.requestId });

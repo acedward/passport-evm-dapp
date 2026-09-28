@@ -366,8 +366,9 @@ describe.each(RELAY_ACTIONS)('POST /v1/actions/%s (production catalogue)', (acti
       401,
       'wrong-signer',
     );
-    if (kind === 'passport-call') {
-      // Signed by a stranger in their own name: not a device of this account.
+    if (kind === 'passport-call' || action === 'bridge-resume') {
+      // Signed by a stranger in their own name: not a device of this account. A resume is refused
+      // at admission too (security review F-B2), so it never takes a queue slot.
       await refused(r, await post(r, action, await body(r, action, { signer: stranger })), 401, 'wrong-signer');
     }
   });
@@ -440,6 +441,36 @@ describe.each(RELAY_ACTIONS)('POST /v1/actions/%s (production catalogue)', (acti
     expect(e.error.code).toBe('sponsor-low');
     sponsor.current = { ...sponsor.current, dustSpecks: 10n ** 20n };
     expect((await post(r, action, b)).status).toBe(202); // the same authorisation still works
+  });
+});
+
+describe('bridge-resume admission (security review F-B2)', () => {
+  it("refuses strangers' resumes before the queue, so they cannot fill it, and the owner's still queues", async () => {
+    const r = productionRelay({
+      env: { JOB_MAX: '10', RATE_LIMIT_ACTIONS_PER_MIN: '1000', RATE_LIMIT_ACTIONS_PER_OWNER_PER_MIN: '1000' },
+    });
+    const statuses: number[] = [];
+    for (let i = 0; i < 25; i++) {
+      const stranger = Wallet.createRandom();
+      statuses.push(
+        (await post(r, 'bridge-resume', await body(r, 'bridge-resume', { signer: stranger, n: i }))).status,
+      );
+    }
+    expect(new Set(statuses)).toEqual(new Set([401]));
+    expect(r.queue.stats().jobs).toBe(3); // only the three lane holders
+    expect(r.fake.calls).toEqual([]);
+    expect((await post(r, 'bridge-resume', await body(r, 'bridge-resume'))).status).toBe(202);
+  });
+
+  it('answers 503 and keeps nothing when the account cannot be read at admission', async () => {
+    const r = productionRelay();
+    (r.rt as unknown as { ledgerState: () => Promise<never> }).ledgerState = async () => {
+      throw new Error('indexer down');
+    };
+    const res = await post(r, 'bridge-resume', await body(r, 'bridge-resume'));
+    expect(res.status).toBe(503);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('chain-unavailable');
+    expect(r.queued()).toBe(0);
   });
 });
 
