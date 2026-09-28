@@ -56,12 +56,15 @@ and `curl`. A TLS reverse proxy (Caddy, nginx, a tunnel) for the public site.
 | What | Memory |
 |---|---|
 | Proof server, during a k=18 proof (every signed account call except registration) | about 8 GB; its limit is `PROOF_SERVER_MEM_LIMIT=12g` |
-| Relay | 1 to 2 GB; limit `RELAY_MEM_LIMIT=4g` |
+| Relay | 1 to 2 GB idle, **about 5 to 7 GB at its peak during a proof**; limit `RELAY_MEM_LIMIT=8g` |
 | Web | under 50 MB; limit 256 MB |
 | Key job, once, while it compiles | limit `KEYS_JOB_MEM_LIMIT=12g` |
 
-Plan for **16 GB of RAM** at least, and 24 GB to be comfortable. The relay proves one call at a
-time, so the proof server never needs more than one k=18 proof's memory.
+Plan for about **24 GB of RAM**: the relay (up to about 7 GB) and the proof server (about 8 GB)
+peak together during every k=18 proof. The relay proves one call at a time, so the proof server
+never needs more than one k=18 proof's memory. Keep `RELAY_MEM_LIMIT` at 8g or more: under the
+former 4 GiB limit, a host without swap can OOM-kill the relay in the middle of a proof, and the
+customer's job is lost (plan question Q25; measured in the live acceptance run).
 
 **Disk**: about 20 GB free before the first start. The images take about 1.8 GB, the key volume
 3.4 GB, and the key compile needs about 8 GB more while it runs (it deletes the extra afterwards).
@@ -519,7 +522,12 @@ These are accepted for this version (plan question Q9), and the UI explains them
   its first deploy pays its DUST again). Whenever you can, restart the relay when every lane in
   `/health` `queue.lanes` shows 0 running and 0 waiting;
 - proofs one at a time, and withdrawals one at a time for the whole bank (section 10);
-- stocks without a bid show "no liquidity" and are left out of the total value.
+- stocks without a bid show "no liquidity" and are left out of the total value;
+- change coins created on a relay older than the security-review fix F-B3 (the bank pays for
+  recording change in the inbox only against an entitlement it issued with that change) cannot be
+  recorded in the inbox after the upgrade. They stay spendable from the customer's browser, and
+  the customer's Export keeps them; only a restore from the chain alone would miss them (plan
+  question Q26, accepted).
 
 ## 13. Start, stop, upgrade and re-pin
 
@@ -554,6 +562,15 @@ docker compose -f deploy/compose.yml up -d
 The `keys` job re-verifies. If the new version changed a key input (the Passport commit, compactc,
 the Signet module, the kept keys), it compiles again first: stop the relay before
 (`docker compose stop relay`), keep about 12 GB of disk free, and run `up keys` attached.
+
+**Upgrading a deployment made from `423f44e`** (before the security-review fixes):
+
+- set `RELAY_MEM_LIMIT=8g` in your `deploy/.env` (a copy of the old `.env.example` says 4g, and it
+  overrides the new default);
+- rebuild and restart the relay and the web images **together**: the new relay refuses the old
+  page's change re-filing (it has no entitlement) and its payments to a Midnight wallet address
+  (they have no envelope), and the new page needs the new relay;
+- change that customers have not recorded yet cannot be recorded after the upgrade (section 12).
 
 ### 13.3 Re-pin when something upstream moves
 
