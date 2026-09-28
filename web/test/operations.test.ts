@@ -10,7 +10,9 @@ import {
   bytesToHex,
   contractCoinCommitment,
   contractCoinNullifier,
+  formatShieldedAddress,
   hexToBytes,
+  payloadHash,
   recoverRelayActionSigner,
   type AccountStateView,
   type ActionRequest,
@@ -311,6 +313,32 @@ describe('the inbox walk and the gated calls (L-ACC.2 to L-ACC.5)', () => {
       inInbox: false,
     });
     expectImportRoundTrip(e.store, e.scope);
+  });
+
+  // Security review F-B6: the recipient's encryption key is outside the contract's challenge, so a
+  // payment to a wallet address carries a RelayAction envelope over the whole body, same device.
+  it('pays a wallet address with a second signature that binds its encryption key', async () => {
+    const { w, relay, e, calls } = await fundedAccount();
+    await syncAccount(e, ACCOUNT);
+    relay.results.withdraw = { txId: 'wd2', change: null };
+    const recipient = { coinPublicKey: '44'.repeat(32), encryptionPublicKey: '55'.repeat(32) };
+    await withdrawToWallet(e, ACCOUNT, {
+      color: COLOUR,
+      amount: 40_000_000n,
+      recipient: formatShieldedAddress(recipient, 'undeployed'),
+    });
+    expect(calls).toEqual(['eth_signTypedData_v4', 'eth_signTypedData_v4']);
+    const sub = relay.submitted[0]!;
+    const payload = sub.request.payload as Record<string, unknown>;
+    expect(payload).toMatchObject({ recipient: '44'.repeat(32), recipientEncryptionKey: '55'.repeat(32) });
+    const auth = sub.request.auth as SignedRelayAction;
+    expect(auth.message).toMatchObject({
+      action: 'withdraw',
+      network: 'undeployed',
+      account: `0x${ACCOUNT}`,
+      payloadHash: payloadHash(payload), // the WHOLE body, encryption key included
+    });
+    expect(recoverRelayActionSigner(auth.message, auth.signature)).toBe(w.address);
   });
 
   it('refuses an amount no single coin covers before asking the wallet', async () => {

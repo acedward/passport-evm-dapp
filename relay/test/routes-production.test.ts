@@ -160,6 +160,7 @@ function productionRelay(
         runtime: () => rt,
         sponsor,
         vaultAddress: VAULT,
+        network: 'undeployed',
         chainId: 11155111,
         replay,
         entitlements,
@@ -458,6 +459,61 @@ describe.each(RELAY_ACTIONS)('POST /v1/actions/%s (production catalogue)', (acti
     expect(e.error.code).toBe('sponsor-low');
     sponsor.current = { ...sponsor.current, dustSpecks: 10n ** 20n };
     expect((await post(r, action, b)).status).toBe(202); // the same authorisation still works
+  });
+});
+
+describe('a withdrawal to a wallet binds its encryption key (security review F-B6)', () => {
+  const KEY = '55'.repeat(32);
+  /** A withdraw to a wallet: the Passport call (which cannot cover the key) and, optionally, a
+   *  RelayAction envelope over the whole body by `envelopeSigner`, for `signedKey`. */
+  async function withdrawTo(
+    r: Relay,
+    opts: { sentKey?: string; signedKey?: string; envelopeSigner?: BaseWallet | null } = {},
+  ) {
+    const b = await body(r, 'withdraw');
+    const signedPayload = { ...b.payload, recipientEncryptionKey: opts.signedKey ?? KEY };
+    const payload = { ...b.payload, recipientEncryptionKey: opts.sentKey ?? opts.signedKey ?? KEY };
+    const envelopeSigner = opts.envelopeSigner === undefined ? r.device : opts.envelopeSigner;
+    if (!envelopeSigner) return { ...b, payload };
+    const nonce = ((await (await r.app.request(API_PATHS.nonce)).json()) as { nonce: string }).nonce;
+    const message = buildRelayActionMessage({
+      action: 'withdraw',
+      network: r.config.network.name,
+      owner: envelopeSigner.address,
+      account: ACCOUNT,
+      payload: signedPayload,
+      nonce,
+      expiry: Math.floor(Date.now() / 1000) + 120,
+    });
+    const signature = await envelopeSigner.signTypedData(relayDomain(), RELAY_ACTION_TYPES, message);
+    return { ...b, payload, auth: { message, signature } };
+  }
+
+  it('accepts the call with an envelope over the whole body, by the same device', async () => {
+    const r = productionRelay();
+    expect((await post(r, 'withdraw', await withdrawTo(r))).status).toBe(202);
+    expect(r.queued()).toBe(1);
+  });
+
+  it('refuses a changed encryption key after signing, a missing envelope, or another signer, before any work', async () => {
+    let r = productionRelay();
+    await refused(
+      r,
+      await post(r, 'withdraw', await withdrawTo(r, { sentKey: '66'.repeat(32) })),
+      401,
+      'payload-mismatch',
+    );
+    r = productionRelay();
+    await refused(r, await post(r, 'withdraw', await withdrawTo(r, { envelopeSigner: null })), 401, 'malformed');
+    r = productionRelay();
+    await refused(
+      r,
+      await post(r, 'withdraw', await withdrawTo(r, { envelopeSigner: Wallet.createRandom() })),
+      401,
+      'wrong-signer',
+    );
+    // The Passport signature was given back each time: the honest call still goes through.
+    expect((await post(r, 'withdraw', await withdrawTo(r))).status).toBe(202);
   });
 });
 

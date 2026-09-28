@@ -319,6 +319,32 @@ export function createApp(deps: AppDeps): Hono {
         return apiError(c, 401, 'unauthorised', outcome.reason, outcome.code);
       }
 
+      // Security review F-B6: arguments a gated call's own signature cannot cover (a withdrawal's
+      // recipient encryption key) are bound by a RelayAction envelope over the WHOLE body, signed
+      // by the same device; verified here (its nonce spent) and again by the executor.
+      if (outcome.kind === 'passport-call' && def.envelope?.(payload.data)) {
+        const envelope = verifyRelayActionRequest(request.auth, {
+          action: def.action,
+          network: config.network.name,
+          chainId: config.network.evm.chainId,
+          account,
+          payload: request.payload,
+          maxTtlSeconds: limits.authMaxTtlSeconds,
+          nonces: deps.nonces,
+          now: now(),
+        });
+        const refusal = !envelope.ok
+          ? { code: envelope.code, reason: `the relay envelope: ${envelope.reason}` }
+          : envelope.signer.toLowerCase() !== outcome.signer.toLowerCase()
+            ? { code: 'wrong-signer', reason: 'the relay envelope is not signed by the device that signed the call' }
+            : null;
+        if (refusal) {
+          outcome.release?.();
+          log.info('action refused', { action: def.action, code: `envelope ${refusal.code}` });
+          return apiError(c, 401, 'unauthorised', refusal.reason, refusal.code);
+        }
+      }
+
       const ownerRefused = limited(ownerLimiter, outcome.signer.toLowerCase(), c);
       if (ownerRefused) {
         // Refused after the authorisation was accepted: let the same signature be sent again later.

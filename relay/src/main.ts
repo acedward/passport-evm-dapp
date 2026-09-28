@@ -255,6 +255,7 @@ async function main(): Promise<void> {
           runtime: () => runtime,
           sponsor,
           vaultAddress: config.network.bridge.vaultAddress,
+          network: config.network.name,
           chainId: config.network.evm.chainId,
           replay,
           entitlements,

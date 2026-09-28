@@ -498,7 +498,8 @@ Put this where customers read it (the site says the same in its pages):
 - **One coin per payment.** The largest amount you can pay or withdraw at once is your largest
   single coin ("largest single payment" on the page).
 - **A withdrawal that leaves change asks for a second signature**, to record the change in your
-  account.
+  account. **Sending to a Midnight wallet address** asks for one more before it: it confirms the
+  recipient's address (its encryption key) to the bank.
 - **Bridge transfers take about 20 minutes** (Sepolia finality). You can close the page; the
   transfer resumes from Transfers when you come back.
 - **These are test networks and test tokens.** There is no faucet: ask the bank for test tokens.

@@ -40,6 +40,10 @@ export interface ActionDefinition {
   payload: z.ZodType<Record<string, unknown>>;
   /** An extra check before the job is queued (./admission.ts; security review F-B2, F-B3). */
   admit?: AdmissionCheck;
+  /** For a `passport-call` action: whether this body ALSO needs a RelayAction envelope over the
+   *  whole body, signed by the same device, because it carries arguments the call's own signature
+   *  cannot cover (security review F-B6: a withdrawal's recipient encryption key). */
+  envelope?: (payload: Record<string, unknown>) => boolean;
   executor: JobExecutor;
   /** The plan lane that implements the executor. */
   implementedBy: string;
@@ -102,7 +106,13 @@ export function accountCatalogue(deps: AccountActionDeps): Map<RelayActionName, 
   const set = (action: RelayActionName, patch: Partial<ActionDefinition>) =>
     map.set(action, { ...map.get(action)!, ...patch });
   set('register', { executor: registerExecutor(deps) });
-  set('withdraw', { auth: 'passport-call', payload: WithdrawPayloadSchema, executor: withdrawExecutor(deps) });
+  set('withdraw', {
+    auth: 'passport-call',
+    payload: WithdrawPayloadSchema,
+    // The recipient's encryption key is not in the contract's WithdrawShielded challenge (F-B6).
+    envelope: (p) => p.recipientEncryptionKey !== undefined,
+    executor: withdrawExecutor(deps),
+  });
   set('append-inbox', {
     auth: 'passport-call',
     payload: AppendInboxPayloadSchema,

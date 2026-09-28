@@ -20,6 +20,7 @@ import {
   type AppendInboxPayload,
   type JobView,
   type RegisterResult,
+  type SignedRelayAction,
   type StoredCoin,
   type WithdrawPayload,
   type WithdrawResult,
@@ -276,6 +277,29 @@ export async function gatedContext(env: OperationEnv, account: string) {
   return { state, counter };
 }
 
+/**
+ * A RelayAction over the WHOLE body (security review F-B6), for arguments the contract's own
+ * challenge does not cover: the relay checks it names this body exactly, and the same device.
+ */
+async function relayEnvelope(
+  env: OperationEnv,
+  action: 'withdraw',
+  account: string,
+  payload: Record<string, unknown>,
+): Promise<SignedRelayAction> {
+  const { nonce, maxTtlSeconds } = await env.relay.nonce();
+  const message = buildRelayActionMessage({
+    action,
+    network: env.scope.network,
+    owner: env.owner,
+    account,
+    payload,
+    nonce,
+    expiry: Math.floor(Date.now() / 1000) + Math.min(maxTtlSeconds, 300),
+  });
+  return { message, signature: await signTypedData(env, relayActionTypedData(message, env.chainId)) };
+}
+
 async function submitGated(
   env: OperationEnv,
   account: string,
@@ -284,13 +308,17 @@ async function submitGated(
   typedData: unknown,
   counter: bigint,
   context: Record<string, unknown>,
+  opts: { envelope?: boolean } = {},
 ): Promise<JobView> {
   if (!RELAY_ACTIONS.includes(action)) throw new OperationError('unknown action');
   const signature = await signTypedData(env, typedData);
+  const body = payload as unknown as Record<string, unknown>;
+  const auth = opts.envelope && action === 'withdraw' ? await relayEnvelope(env, action, account, body) : undefined;
   const job = await env.relay.submit(action, {
     account,
-    payload: payload as unknown as Record<string, unknown>,
+    payload: body,
     passportAuth: { owner: lower(env.owner), signature, useCounter: counter.toString(10) },
+    ...(auth ? { auth } : {}),
   });
   putJob(env, account, job, action, context);
   env.onJob?.(job);
@@ -342,9 +370,18 @@ export async function withdrawToWallet(
     env.owner,
     withdrawRequest(payload),
   );
-  const done = await submitGated(env, account, 'withdraw', payload, call.typedData, counter, {
-    spent: coin.commitment,
-  });
+  // Paying a wallet seals the coin to its encryption key, which the contract's challenge does not
+  // cover: a second signature binds it for the bank (security review F-B6).
+  const done = await submitGated(
+    env,
+    account,
+    'withdraw',
+    payload,
+    call.typedData,
+    counter,
+    { spent: coin.commitment },
+    { envelope: payload.recipientEncryptionKey !== undefined },
+  );
   const result = done.result as unknown as WithdrawResult;
   // The change has no inbox entry yet (Q13); the bank's single-use entitlement to file one is kept
   // with it (security review F-B3).

@@ -7,6 +7,7 @@
 
 import {
   RegisterPayloadSchema,
+  checkRelayActionBinding,
   recoverRelayActionPoint,
   type AppendInboxResult,
   type RegisterResult,
@@ -30,6 +31,8 @@ export interface AccountActionDeps {
   sponsor: SponsorSession;
   /** The vault every account seals (64 hex); '' when the network profile names none. */
   vaultAddress: string;
+  /** The Midnight network name a RelayAction envelope must name (security review F-B6). */
+  network: string;
   chainId: number;
   replay: DigestReplayGuard;
   /** Issues and checks the single-use entitlements `append-inbox` needs (security review F-B3). */
@@ -226,6 +229,22 @@ export function withdrawExecutor(deps: AccountActionDeps): JobExecutor {
   return async (raw, ctx) => {
     const { rt, check } = await recheck(deps, 'withdraw', raw, ctx);
     const p = check.payload;
+    if (p.recipientEncryptionKey) {
+      // Security review F-B6: the encryption key the coin is sealed to must be the one the device
+      // signed in the route's RelayAction envelope (the contract's challenge does not cover it).
+      const { account: _a, passportAuth: _p, signer: _s, auth, ...body } = raw as Record<string, unknown>;
+      const envelope = checkRelayActionBinding(auth, {
+        expectedAction: 'withdraw',
+        network: deps.network,
+        chainId: deps.chainId,
+        expectedAccount: check.account,
+        payload: body,
+      });
+      if (!envelope.ok || envelope.signer.toLowerCase() !== check.signer.toLowerCase()) {
+        deps.replay.release(check.digestHex);
+        throw new PublicError('unauthorised', "the recipient is not the one the device's relay envelope names");
+      }
+    }
     return runGated(deps, check.digestHex, () =>
       ctx.prove(() =>
         deps.sponsor.withWallet(async (w) => {

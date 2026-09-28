@@ -465,6 +465,7 @@ async function ensureAccounts(state: TrdState, which: 'A' | 'B'): Promise<void> 
       runtime: () => rt,
       sponsor: s,
       vaultAddress: NET.bridge.vaultAddress,
+      network: NET.name,
       chainId: NET.evm.chainId,
       replay: new DigestReplayGuard(3600),
       // Registration issues no append entitlement (security review F-B3); the executor needs the store.
