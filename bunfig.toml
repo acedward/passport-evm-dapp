@@ -1,0 +1,5 @@
+# One flat node_modules at the root. The Passport client (vendor/passport, a git submodule)
+# is consumed as TypeScript source, and its imports must resolve from the root node_modules.
+[install]
+linker = "hoisted"
+exact = true

@@ -1,0 +1,183 @@
+# MN Bank: the deployment bundle (plan 00039 P4-B). The runbook is deploy/RUNBOOK.md.
+#
+#   cp deploy/.env.example deploy/.env         # then edit it; secrets stay in files, never here
+#   docker compose -f deploy/compose.yml build
+#   docker compose -f deploy/compose.yml up keys        # first time: compile + verify the keys (~1 h)
+#   docker compose -f deploy/compose.yml up -d
+#   docker compose -f deploy/compose.yml ps             # everything healthy?
+#
+# Services, in start order:
+#   keys          one-shot: builds the relay's prover/verifier keys into the `keys` volume with
+#                 compactc 0.34.0, verifies them (vault + Signet keys = the ones deployed on the
+#                 network; account keys = compiled expectedVk; fingerprint = RELAY_KEYS_FINGERPRINT),
+#                 then exits 0. Later starts only re-verify. A failure stops everything below.
+#   proof-server  midnightntwrk/proof-server 9.0.0-rc.6 (pinned by digest): proves every Passport
+#                 circuit and the sponsor wallet's DUST spends. Internal only. Starts with `keys`.
+#   relay         proves, pays DUST from the sponsor wallet, submits, drives bridge requests, and
+#                 closes bridge requests their owners left open (Q21 A). Mounts `keys` read-only;
+#                 refuses to start on a key set that is incomplete or not the pinned one.
+#   web           the static site on unprivileged nginx, with /relay/ proxied to the relay.
+#
+# Nothing secret is in this file or in any image: the sponsor seed and the Sepolia RPC URL are
+# files on the host (SPONSOR_SEED_HOST_FILE, SEPOLIA_RPC_URL_HOST_FILE), mounted as secrets.
+
+name: ${COMPOSE_PROJECT_NAME:-mnbank}
+
+x-hardening: &hardening
+  cap_drop: [ALL]
+  security_opt:
+    - no-new-privileges:true
+
+x-logging: &logging
+  logging:
+    driver: json-file
+    options:
+      max-size: 20m
+      max-file: '5'
+
+services:
+  keys:
+    <<: [*hardening, *logging]
+    build:
+      context: ..
+      dockerfile: deploy/key-volume.Dockerfile
+    image: mnbank/key-volume:${IMAGE_TAG:-local}
+    environment:
+      RELAY_NETWORK: ${RELAY_NETWORK:-stagenet}
+      MIDNIGHT_INDEXER_URL: ${MIDNIGHT_INDEXER_URL:-}
+      BRIDGE_VAULT_ADDRESS: ${BRIDGE_VAULT_ADDRESS:-}
+      BRIDGE_SIGNET_SINGLETON: ${BRIDGE_SIGNET_SINGLETON:-}
+      RELAY_KEYS_FINGERPRINT: ${RELAY_KEYS_FINGERPRINT:-}
+      KEYS_KEEP_PROVERS: ${KEYS_KEEP_PROVERS:-}
+      KEYS_VERIFY_ONCHAIN_EVERY_START: ${KEYS_VERIFY_ONCHAIN_EVERY_START:-true}
+      KEYS_MIN_FREE_GB: ${KEYS_MIN_FREE_GB:-10}
+      KEYS_IMPORT_DIR: ${KEYS_IMPORT_DIR:-}
+      KEYS_ACCOUNT_SOURCE_SHA256: ${KEYS_ACCOUNT_SOURCE_SHA256:-}
+      MIDNIGHT_PP: /zk-params
+    volumes:
+      - keys:/app/vendor/passport/contract/contracts/managed
+      - zk-params:/zk-params
+    read_only: true
+    tmpfs:
+      - /tmp
+    mem_limit: ${KEYS_JOB_MEM_LIMIT:-12g}
+    restart: 'no'
+
+  proof-server:
+    <<: [*hardening, *logging]
+    # 9.0.0-rc.6, the stagenet pin: one server for the wallet's DUST proofs and every Passport
+    # circuit. A k=18 proof needs about 8 GB. The image has no shell or HTTP client, so it has no
+    # Docker health check: the relay's /health reports it (proofServer.reachable, version).
+    image: midnightntwrk/proof-server:9.0.0-rc.6@sha256:38a819eacde273f725551fdf90ca7c31ebf3c0ff145f3ed58ee35f92fb7ce95b
+    environment:
+      PORT: '6300'
+      # Where it keeps the public parameters and the zswap keys it fetches at start (its own
+      # volume, so a restart does not fetch them again).
+      MIDNIGHT_PP: /proof-params
+    volumes:
+      - proof-params:/proof-params
+    mem_limit: ${PROOF_SERVER_MEM_LIMIT:-12g}
+    restart: unless-stopped
+
+  relay:
+    <<: [*hardening, *logging]
+    build:
+      context: ..
+      dockerfile: deploy/relay.Dockerfile
+      args:
+        RELAY_VERSION: ${RELAY_VERSION:-local}
+    image: mnbank/relay:${IMAGE_TAG:-local}
+    env_file:
+      # Every relay setting (deploy/.env.example). RELAY_ENV_FILE points elsewhere when the
+      # compose command itself runs with --env-file <other file>.
+      - path: ${RELAY_ENV_FILE:-.env}
+        required: true
+    environment:
+      HOME: /tmp
+      RELAY_NETWORK: ${RELAY_NETWORK:-stagenet}
+      RELAY_TRUST_PROXY: ${RELAY_TRUST_PROXY:-true}
+      MIDNIGHT_PROOF_SERVER_URL: http://proof-server:6300
+      MIDNIGHT_MANAGED_PATH: /app/vendor/passport/contract/contracts/managed
+      # A deployment never runs keyless: no key volume, or an incomplete one, stops the relay.
+      RELAY_REQUIRE_KEYS: 'true'
+      SPONSOR_SEED_FILE: /run/secrets/sponsor_seed
+      SEPOLIA_RPC_URL_FILE: /run/secrets/sepolia_rpc_url
+    secrets:
+      - sponsor_seed
+      - sepolia_rpc_url
+    volumes:
+      - keys:/app/vendor/passport/contract/contracts/managed:ro
+    user: ${RELAY_USER:-1000:1000}
+    read_only: true
+    tmpfs:
+      - /tmp
+    init: true
+    ports:
+      # Operators only (health checks from the host). The public reaches the relay through web.
+      - 127.0.0.1:${RELAY_HOST_PORT:-18080}:8080
+    depends_on:
+      keys:
+        condition: service_completed_successfully
+      proof-server:
+        condition: service_started
+    healthcheck:
+      # Healthy while /health is not "down" (down = proof server unreachable, sponsor wallet
+      # error, or a key set other than the pinned one). "degraded" (low DUST, kernel down, low
+      # vault gas, …) is still healthy here: read /health for the detail.
+      test:
+        - CMD
+        - bun
+        - -e
+        - "fetch('http://127.0.0.1:' + (process.env.RELAY_PORT || 8080) + '/health').then(r => process.exit(r.status === 503 ? 1 : 0)).catch(() => process.exit(1))"
+      interval: 60s
+      timeout: 20s
+      start_period: 180s
+      retries: 3
+    # 8g (plan question Q25 A) is headroom: the relay needs 1 to 2 GB, and a proof adds about
+    # 0.15 GB since it streams the prover key (plan P5.1b). RUNBOOK section 2 has the sizing.
+    mem_limit: ${RELAY_MEM_LIMIT:-8g}
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+  web:
+    <<: [*hardening, *logging]
+    build:
+      context: ..
+      dockerfile: deploy/web.Dockerfile
+    image: mnbank/web:${IMAGE_TAG:-local}
+    environment:
+      WEB_NETWORK: ${RELAY_NETWORK:-stagenet}
+      WEB_RELAY_URL: ${WEB_RELAY_URL:-/relay}
+      WEB_RELAY_UPSTREAM: relay:8080
+      WEB_TRUSTED_PROXIES: ${WEB_TRUSTED_PROXIES:-127.0.0.1/32,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}
+      WEB_CONTENT_SECURITY_POLICY: ${WEB_CONTENT_SECURITY_POLICY:-}
+    read_only: true
+    tmpfs:
+      - /tmp
+    ports:
+      - ${WEB_BIND_ADDRESS:-127.0.0.1}:${WEB_HOST_PORT:-18081}:8080
+    depends_on:
+      relay:
+        condition: service_started
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:8080/healthz]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    mem_limit: ${WEB_MEM_LIMIT:-256m}
+    restart: unless-stopped
+
+volumes:
+  # The compiled contracts with the relay's prover keys (about 3.6 GB), written by `keys`.
+  keys: {}
+  # The proving system's public parameters (SRS) the key compile fetches (about 0.2 GB).
+  zk-params: {}
+  # The proof server's parameters and zswap keys (about 0.3 GB), fetched at its first start.
+  proof-params: {}
+
+secrets:
+  sponsor_seed:
+    file: ${SPONSOR_SEED_HOST_FILE:?set SPONSOR_SEED_HOST_FILE to the sponsor seed file on the host (deploy/RUNBOOK.md)}
+  sepolia_rpc_url:
+    file: ${SEPOLIA_RPC_URL_HOST_FILE:?set SEPOLIA_RPC_URL_HOST_FILE to the file holding the Sepolia RPC URL (deploy/RUNBOOK.md)}

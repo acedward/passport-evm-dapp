@@ -1,0 +1,4 @@
+/* The MN Bank design system's styles, in cascade order. Imported once, by web/src/main.tsx. */
+@import './tokens.css';
+@import './base.css';
+@import './components.css';

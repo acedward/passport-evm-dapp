@@ -1,0 +1,22 @@
+{
+  "name": "@mnbank/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared, environment-neutral code for the MN Bank dApp: network profiles, the token registry, amount maths, the relay's action authorisation and API types, and the browser-safe Passport client surface.",
+  "license": "Apache-2.0",
+  "exports": {
+    ".": "./src/index.ts",
+    "./passport": "./src/passport/index.ts",
+    "./passport/gated": "./src/passport/gated.ts"
+  },
+  "dependencies": {
+    "@midnight-ntwrk/compact-runtime": "0.19.0",
+    "@noble/curves": "2.2.0",
+    "@noble/hashes": "2.2.0",
+    "@scure/base": "2.0.0",
+    "@sig-net/midnight": "0.23.0",
+    "ethers": "6.17.0",
+    "zod": "4.6.5"
+  }
+}

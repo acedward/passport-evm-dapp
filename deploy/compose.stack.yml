@@ -1,0 +1,10 @@
+# Join the network of a local ledger-9 stack (the plan's P0.5 recipe), so the relay reaches
+# node:9944, indexer:8088, kernel:9999 and batcher:3334 by name. The stack's own `down` never
+# removes this project, because the network is external here: remove this project first.
+services:
+  relay:
+    networks: [default, stack]
+networks:
+  stack:
+    external: true
+    name: ${STACK_NETWORK:?set STACK_NETWORK to the stack's <project>_default network}

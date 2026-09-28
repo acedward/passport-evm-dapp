@@ -1,0 +1,83 @@
+# gitleaks configuration: the default rules plus this repository's own patterns.
+# Run through scripts/secret-scan.sh (before every push) and in CI.
+
+title = "passport-evm-dapp"
+
+[extend]
+useDefault = true
+
+# ── Custom rules ─────────────────────────────────────────────────────────────
+
+[[rules]]
+id = "env-style-wallet-secret"
+description = "A wallet secret assigned in an env-style file (WALLET=, SK=, SEED=, MNEMONIC=, PRIVATE_KEY=, SPONSOR_SEED=)"
+regex = '''(?im)^\s*(?:export\s+)?(?:WALLET|SK|SEED|MNEMONIC|PRIVATE_KEY|SPONSOR_SEED|DEPLOYER_KEY)\s*=\s*["']?((?:[a-z]{3,8}[ \t]+){11,23}[a-z]{3,8}|[^\s"'#]{16,})'''
+keywords = ["wallet=", "sk=", "seed=", "mnemonic=", "private_key=", "sponsor_seed=", "deployer_key="]
+
+[[rules]]
+id = "bip39-mnemonic-labelled"
+description = "Twelve to twenty-four lowercase words after a seed, mnemonic or recovery-phrase label"
+regex = '''(?i)(?:mnemonic|seed ?phrase|recovery ?phrase|secret ?phrase)["'\s:=]+((?:[a-z]{3,8}[ \t]+){11,23}[a-z]{3,8})\b'''
+keywords = ["mnemonic", "seed phrase", "seedphrase", "recovery phrase", "secret phrase"]
+
+[[rules]]
+id = "keyed-rpc-url"
+description = "An RPC URL that carries a provider API key"
+regex = '''https://[a-z0-9.-]*(?:infura\.io|alchemy\.com|alchemyapi\.io|quiknode\.pro|ankr\.com|drpc\.org|blastapi\.io|chainstack\.com|getblock\.io|nodereal\.io|tenderly\.co)/[A-Za-z0-9/_-]{16,}'''
+keywords = ["infura", "alchemy", "quiknode", "ankr", "drpc", "blastapi", "chainstack", "getblock", "nodereal", "tenderly"]
+
+[[rules]]
+id = "labelled-hex-private-key"
+description = "A 32-byte hex value labelled as a private, secret or signing key"
+regex = '''(?i)(?:private[_-]?key|secret[_-]?key|signing[_-]?key|seed[_-]?hex)["']?\s*[:=]\s*["']?(?:0x)?([0-9a-f]{64})\b'''
+keywords = ["private", "secret", "signing", "seed"]
+
+# ── Allowlists ───────────────────────────────────────────────────────────────
+
+[[allowlists]]
+description = "Not this repository's content: the Passport submodule (upstream's own tree), installs and caches"
+paths = [
+  '''(^|/)vendor/passport/''',
+  '''(^|/)node_modules/''',
+  '''(^|/)\.tools/''',
+  '''(^|/)bun\.lock$''',
+]
+
+# The vendored PR #4 deployment records (PROVENANCE.md): the values the default generic-api-key
+# rule flags there are PUBLIC keys (the MPC's and the deployer's). Scoped to that rule, those
+# files AND those field names only. (A top-level [[allowlists]] with targetRules does not reach a
+# default rule in gitleaks 8.28; extending the rule's own allowlist does.)
+[[rules]]
+id = "generic-api-key"
+[[rules.allowlists]]
+condition = "AND"
+paths = ['''(^|/)packages/core/src/tokens/deployments/[a-z0-9-]+\.json$''']
+regexTarget = "match"
+regexes = ['''^(?:mpcResponseKey|mpcRootPublicKey|deployerPublicKey)"''']
+
+# The staging kernel's GET /v1/known-tokens, captured verbatim (a test fixture): the values the
+# rule flags there are PUBLIC token colours. Scoped to that rule, that capture AND that field.
+[[rules.allowlists]]
+condition = "AND"
+paths = ['''(^|/)packages/core/test/fixtures/kernel/staging-[0-9-]+/known-tokens\.json$''']
+regexTarget = "match"
+regexes = ['''^token_color"''']
+
+# The web bundle carries the onchain-runtime's wasm-bindgen glue (the browser-safe Passport
+# client, plan P0.4): its generated import names (`__wbg_<name>_<16 hex>`) and one exported
+# function name are code identifiers, not secrets. Scoped to that rule, the built bundle AND those
+# exact shapes only.
+[[rules.allowlists]]
+condition = "AND"
+paths = ['''(^|/)web/dist/assets/[^/]+\.js(\.map)?$''']
+regexTarget = "secret"
+regexes = ['''^__wbg_[A-Za-z0-9_]+_[0-9a-f]{16}$''', '''^signingKeyFromBip340$''']
+
+# deploy/.env.example pins the relay's key-set fingerprint: a SHA-256 over PUBLIC verifier keys,
+# which the generic rule flags because the variable's name holds "KEY". Scoped to that rule, that
+# file AND that exact assignment.
+[[rules.allowlists]]
+condition = "AND"
+paths = ['''(^|/)deploy/\.env\.example$''']
+regexTarget = "match"
+regexes = ['''^RELAY_KEYS_FINGERPRINT=[0-9a-f]{64}$''']

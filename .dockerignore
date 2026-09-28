@@ -1,0 +1,18 @@
+# Keep the build context small and free of anything local or secret.
+**/node_modules
+**/dist
+.git
+**/.git
+.tools
+coverage
+playwright-report
+test-results
+**/.env
+**/.env.*
+!deploy/.env.example
+**/*.key
+**/*.pem
+**/keys
+**/managed
+**/.DS_Store
+**/*.log

@@ -1,0 +1,13 @@
+# Mount the key volume (the compiled contracts with the relay's prover keys, built once) read-only,
+# where the pinned Passport client imports its compiled account from. Pin its fingerprint with
+# RELAY_KEYS_FINGERPRINT (the relay refuses to start on another key set).
+services:
+  relay:
+    environment:
+      MIDNIGHT_MANAGED_PATH: /app/vendor/passport/contract/contracts/managed
+    volumes:
+      - relay-keys:/app/vendor/passport/contract/contracts/managed:ro
+volumes:
+  relay-keys:
+    external: true
+    name: ${RELAY_KEYS_VOLUME:?set RELAY_KEYS_VOLUME to the key volume's name}
