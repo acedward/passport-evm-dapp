@@ -31,16 +31,18 @@ import {
 } from '@mnbank/core/passport';
 import { x25519 } from '@noble/curves/ed25519.js';
 
+import { exportFileText, importFile } from '../src/pages/LocalData.js';
 import {
   openAccount,
   secureChange,
   syncAccount,
+  unsecuredCoins,
   withdrawToWallet,
   type OperationEnv,
 } from '../src/passport/operations.js';
 import { readCoins, readRoster, readSecret } from '../src/passport/records.js';
 import type { RelayClient } from '../src/relay/client.js';
-import { recordKey } from '../src/store/schema.js';
+import { MAX_IMPORT_READ_BYTES, recordKey } from '../src/store/schema.js';
 import { LocalStore } from '../src/store/store.js';
 import { expectImportRoundTrip } from './roundtrip.js';
 
@@ -375,5 +377,57 @@ describe('the inbox walk and the gated calls (L-ACC.2 to L-ACC.5)', () => {
     await expect(secureChange(e, ACCOUNT, coin)).rejects.toThrow(/no record of this coin as change/);
     expect(calls).toEqual([]);
     expect(relay.submitted).toEqual([]);
+  });
+
+  // Security review F-B8: the coin list only grows (spent coins are kept), and Import refused a
+  // list of more than 5,000, so a long-used account's own export could not be restored.
+  it('restores an export with more than 5,000 coins, and its unsecured coins survive Import and the next walk (F-B8)', async () => {
+    const { relay, e } = await fundedAccount();
+    await syncAccount(e, ACCOUNT); // the two inbox coins, positioned
+    const { localCoin } = await import('@mnbank/core');
+    const hex = (n: number, width = 64) => n.toString(16).padStart(width, '0');
+    // A long history: 5,100 spent coins the account's inbox described (kept for the record).
+    const history = Array.from({ length: 5_100 }, (_, i) => ({
+      ...localCoin({ nonce: hex(0x10_0000 + i), color: COLOUR, value: String(1_000 + i) }, ACCOUNT, 'inbox', `tx${i}`),
+      mtIndex: String(1_000 + i),
+      inInbox: true,
+      inboxIndex: String(3 + i),
+      spent: true,
+      spentTx: `sp${i}`,
+    }));
+    // Change coins only this browser knows (not yet in the inbox), each with the bank's
+    // entitlement to file it: one positioned (spendable), one whose leaf is not reported yet.
+    const unsecured = [0, 1].map((i) => ({
+      ...localCoin(
+        { nonce: hex(0xc0_0000 + i), color: COLOUR, value: String(7_000_000 + i) },
+        ACCOUNT,
+        'change',
+        `wd${i}`,
+      ),
+      ...(i === 0 ? { mtIndex: '400' } : {}),
+      appendEntitlement: `ae1.${ACCOUNT}.${hex(0xe0 + i)}.99999999999.${'ac'.repeat(32)}`,
+    }));
+    e.store.put(e.scope, 'coins', [...readCoins(e.store, e.scope, ACCOUNT), ...unsecured, ...history], {
+      account: ACCOUNT,
+    });
+    const before = readCoins(e.store, e.scope, ACCOUNT);
+    expect(before).toHaveLength(5_104);
+
+    // Export as the page downloads it, CLEAR ALL, then Import through the page's own function.
+    const text = exportFileText(e.store.exportWallet(e.scope));
+    expect(new TextEncoder().encode(text).length).toBeLessThan(MAX_IMPORT_READ_BYTES);
+    e.store.clearAll();
+    const r = await importFile(e.store, relay as unknown as RelayClient, JSON.parse(text), e.scope);
+    expect(r.imported).toBeGreaterThanOrEqual(3); // secret, roster, coins
+    expect(readCoins(e.store, e.scope, ACCOUNT)).toEqual(before);
+    expect(unsecuredCoins(readCoins(e.store, e.scope, ACCOUNT))).toEqual(unsecured);
+
+    // The next inbox walk (the chain knows nothing of the unsecured coins) keeps every coin.
+    await syncAccount(e, ACCOUNT);
+    const after = readCoins(e.store, e.scope, ACCOUNT);
+    expect(after).toHaveLength(5_104);
+    const kept = unsecuredCoins(after);
+    expect(kept.map((c) => c.nonce).sort()).toEqual(unsecured.map((c) => c.nonce).sort());
+    for (const c of unsecured) expect(kept.find((k) => k.nonce === c.nonce)).toEqual(c);
   });
 });

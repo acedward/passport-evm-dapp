@@ -579,6 +579,79 @@ describe('append-inbox entitlements (security review F-B3)', () => {
   });
 });
 
+describe('append-inbox daily allowance on refusals (security review F-B7)', () => {
+  it('full-queue refusals charge nothing: once capacity returns, the whole allowance is there', async () => {
+    const r = productionRelay({
+      appendsPerDay: 3,
+      env: { JOB_MAX: '10', RATE_LIMIT_ACTIONS_PER_MIN: '1000', RATE_LIMIT_ACTIONS_PER_OWNER_PER_MIN: '1000' },
+    });
+    // Fill the relay: seven jobs of other customers (each in its own deposit lane, so each runs)
+    // beside the three lane holders, all held until `open`.
+    let open!: () => void;
+    const gate = new Promise<Record<string, unknown>>((resolve) => (open = () => resolve({})));
+    const fillers = Array.from({ length: 7 }, (_, i) =>
+      r.queue.submit({
+        action: 'bridge-deposit',
+        lane: 'deposit',
+        account: (0x10 + i).toString(16).repeat(32),
+        payload: {},
+        executor: () => gate,
+      })!,
+    );
+    expect(r.queue.stats().jobs).toBe(10);
+
+    // The customer retries the same change's append while the relay is full: twice the allowance.
+    const token = r.entitlements.issue(ACCOUNT, 'withdraw:tx-busy');
+    const busy: Array<[number, string]> = [];
+    for (let n = 0; n < 6; n++) {
+      const res = await post(r, 'append-inbox', await body(r, 'append-inbox', { entitlement: token, n }));
+      busy.push([res.status, ((await res.json()) as { error: { code: string } }).error.code]);
+    }
+    expect(busy).toEqual(Array.from({ length: 6 }, () => [503, 'busy']));
+    expect(r.queue.stats().jobs).toBe(10);
+    expect(r.sponsor.walletCalls).toBe(0);
+
+    // Capacity returns.
+    open();
+    await Promise.all(fillers.map((f) => r.queue.settled(f.requestId)));
+
+    // The retried append is admitted, and so is the rest of the day's allowance (3) …
+    const statuses = [
+      (await post(r, 'append-inbox', await body(r, 'append-inbox', { entitlement: token, n: 6 }))).status,
+    ];
+    for (let n = 7; n < 9; n++)
+      statuses.push((await post(r, 'append-inbox', await body(r, 'append-inbox', { n }))).status);
+    expect(statuses).toEqual([202, 202, 202]);
+    // Room was made by dropping three of the finished fillers: full again, with the three appends.
+    expect(r.queue.stats().jobs).toBe(10);
+
+    // … and only then is the allowance used up. The refusal says what was counted: appends the
+    // bank queued, not entries filed (a queued append can still fail).
+    const over = await post(r, 'append-inbox', await body(r, 'append-inbox', { n: 9 }));
+    expect(over.status).toBe(429);
+    const e = (await over.json()) as { error: { code: string; message: string } };
+    expect(e.error.code).toBe('append-budget');
+    expect(e.error.message).toContain('3 inbox appends queued');
+    expect(e.error.message).not.toMatch(/filed/);
+  });
+
+  it('an error while queuing gives back the entitlement and the charge as well', async () => {
+    const r = productionRelay({ appendsPerDay: 1 });
+    const submit = r.queue.submit.bind(r.queue);
+    r.queue.submit = () => {
+      throw new Error('the queue failed');
+    };
+    const token = r.entitlements.issue(ACCOUNT, 'withdraw:tx-error');
+    const failed = await post(r, 'append-inbox', await body(r, 'append-inbox', { entitlement: token, n: 0 }));
+    expect(failed.status).toBe(500);
+    r.queue.submit = submit;
+    // Neither the entitlement (403) nor the only append of the day (429) was used up.
+    expect((await post(r, 'append-inbox', await body(r, 'append-inbox', { entitlement: token, n: 1 }))).status).toBe(
+      202,
+    );
+  });
+});
+
 describe('bridge-resume admission (security review F-B2)', () => {
   it("refuses strangers' resumes before the queue, so they cannot fill it, and the owner's still queues", async () => {
     const r = productionRelay({
