@@ -369,24 +369,31 @@ export function createApp(deps: AppDeps): Hono {
         }
       }
 
-      const job = deps.queue.submit({
-        action: def.action,
-        lane: def.lane,
-        account,
-        payload: {
-          ...request.payload,
-          ...(request.auth ? { auth: request.auth } : {}),
-          ...(request.passportAuth ? { passportAuth: request.passportAuth } : {}),
-          ...(account ? { account } : {}),
-          signer: outcome.signer,
-        },
-        executor: def.executor,
-      });
-      if (!job) {
-        outcome.release?.();
-        if (admitted.ok) admitted.release?.();
-        return apiError(c, 503, 'busy', 'the relay is at capacity; try again later');
+      let job: ReturnType<JobQueue['submit']> = null;
+      try {
+        job = deps.queue.submit({
+          action: def.action,
+          lane: def.lane,
+          account,
+          payload: {
+            ...request.payload,
+            ...(request.auth ? { auth: request.auth } : {}),
+            ...(request.passportAuth ? { passportAuth: request.passportAuth } : {}),
+            ...(account ? { account } : {}),
+            signer: outcome.signer,
+          },
+          executor: def.executor,
+        });
+      } finally {
+        if (!job) {
+          // Refused after admission (a full queue, or an error): nothing was queued, so give back
+          // everything the request claimed, the authorisation and whatever the admission charged
+          // (an entitlement and the day's append allowance, security review F-B7).
+          outcome.release?.();
+          if (admitted.ok) admitted.release?.();
+        }
       }
+      if (!job) return apiError(c, 503, 'busy', 'the relay is at capacity; try again later');
       log.info('action queued', { action: def.action, requestId: job.requestId });
       return c.json({ job }, 202);
     },

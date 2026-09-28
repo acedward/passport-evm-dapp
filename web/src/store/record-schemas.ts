@@ -60,7 +60,11 @@ const storedCoin = z
     appendEntitlement: entitlement.optional(),
   })
   .strict();
-const coins = z.array(storedCoin).max(5_000);
+// No count bound of its own (security review F-B8): an account's list only grows (spent coins are
+// kept, see @mnbank/core `reconcileCoins`), and a bound below what the browser can hold refused
+// the page's own exports. The import's size bound, checked before any record is parsed, is the
+// limit: it measures what localStorage itself can hold (schema.ts `MAX_IMPORT_FILE_BYTES`).
+const coins = z.array(storedCoin);
 
 const roster = z.object({ useCounter: decimal }).strict();
 

@@ -20,7 +20,7 @@ import {
 import { RelayClient } from '../relay/client.js';
 import { storageText } from '../store/messages.js';
 import { useStore } from '../store/StoreContext.js';
-import { MAX_IMPORT_FILE_BYTES, SCHEMA_VERSION, STORE_PREFIX } from '../store/schema.js';
+import { MAX_IMPORT_READ_BYTES, SCHEMA_VERSION, STORE_PREFIX, type ExportFile } from '../store/schema.js';
 import { ImportError, type LocalStore, type RecordView } from '../store/store.js';
 import { useWallet } from '../wallet/WalletContext.js';
 
@@ -30,6 +30,10 @@ const short = (s: string, head = 6, tail = 4) =>
   s.length <= head + tail + 1 ? s : `${s.slice(0, head)}…${s.slice(-tail)}`;
 const when = (ms: number | null) => (ms === null ? '—' : new Date(ms).toISOString().replace('T', ' ').slice(0, 19));
 const size = (bytes: number) => (bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`);
+
+/** The export file's text, as the page downloads it: compact JSON, so the file is about the size
+ *  of its records and always within what Import reads (security review F-B8). */
+export const exportFileText = (file: ExportFile): string => `${JSON.stringify(file)}\n`;
 
 function download(name: string, text: string): void {
   const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
@@ -94,10 +98,7 @@ export function LocalData({ network, relayUrl }: { network: string; relayUrl: st
     if (!store || !scope) return;
     const file = store.exportWallet(scope);
     const date = new Date().toISOString().slice(0, 10);
-    download(
-      `mn-bank-${network}-${scope.evmAddress.toLowerCase().slice(0, 10)}-${date}.json`,
-      `${JSON.stringify(file, null, 2)}\n`,
-    );
+    download(`mn-bank-${network}-${scope.evmAddress.toLowerCase().slice(0, 10)}-${date}.json`, exportFileText(file));
     setMessage({
       kind: 'ok',
       text: `Exported ${file.records.length} records. Keep the file safe: it holds your account's viewing secret.`,
@@ -112,10 +113,10 @@ export function LocalData({ network, relayUrl }: { network: string; relayUrl: st
       setMessage({ kind: 'error', text: 'Connect the wallet the file belongs to before importing it.' });
       return;
     }
-    if (f.size > MAX_IMPORT_FILE_BYTES) {
+    if (f.size > MAX_IMPORT_READ_BYTES) {
       setMessage({
         kind: 'error',
-        text: 'This file is larger than an MN Bank export can be (5 MB). Nothing was imported.',
+        text: 'This file is larger than an MN Bank export can be (20 MB). Nothing was imported.',
       });
       return;
     }
