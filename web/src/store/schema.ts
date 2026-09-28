@@ -123,9 +123,16 @@ export function encodeRecord<T>(kind: RecordKind, data: T, updatedAt: number): s
 export const EXPORT_FORMAT = 'mn-bank-local-data';
 export const EXPORT_FORMAT_VERSION = 1;
 
-/** The most an import may hold (security review F-B5): the file's size, and its records' total
- *  size once serialised (localStorage itself holds about 5 MB per site). */
+/** The most an import's records may hold (security review F-B5): their total size once
+ *  serialised, key + value in UTF-16 code units, the measure localStorage itself uses, and about
+ *  what it holds per site (5 MiB). So every export of this page's own records fits (F-B8). */
 export const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024;
+/** The largest file Import reads at all, before parsing it (a guard against absurd files, not the
+ *  export's limit). An export is written as compact JSON (`exportFileText`): its records plus a few
+ *  bytes each, and at most 3 UTF-8 bytes per character, so every export whose records fit
+ *  `MAX_IMPORT_FILE_BYTES` is smaller than this. Older, indented exports (about 1.4 to 2 times
+ *  their records) pass too (security review F-B8). */
+export const MAX_IMPORT_READ_BYTES = 4 * MAX_IMPORT_FILE_BYTES;
 export const MAX_IMPORT_RECORDS = 10_000;
 
 export const ExportFileSchema = z.object({

@@ -2,8 +2,17 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import { encPublicKeyOf } from '@mnbank/core';
 
-import { importFile } from '../src/pages/LocalData.js';
-import { SCHEMA_KEY, STORE_PREFIX, StoreKeyError, parseKey, recordKey, type WalletScope } from '../src/store/schema.js';
+import { exportFileText, importFile } from '../src/pages/LocalData.js';
+import {
+  MAX_IMPORT_FILE_BYTES,
+  MAX_IMPORT_READ_BYTES,
+  SCHEMA_KEY,
+  STORE_PREFIX,
+  StoreKeyError,
+  parseKey,
+  recordKey,
+  type WalletScope,
+} from '../src/store/schema.js';
 import { ImportError, LocalStore, StoreReadOnlyError, type Migration } from '../src/store/store.js';
 
 const ME: WalletScope = { network: 'stagenet', evmAddress: '0xAbCdEf0123456789aBcDeF0123456789AbCdEf01' };
@@ -502,5 +511,50 @@ describe('Import is one change (security review F-B5)', () => {
     expect(() => store.importWallet(big, ME)).toThrow(/more than an MN Bank export can/);
     const twice = { ...file, records: [...file.records, file.records[0]!] };
     expect(() => store.importWallet(twice, ME)).toThrow(/same record twice/);
+  });
+});
+
+describe('Import takes every export the page can write (security review F-B8)', () => {
+  it('the fullest wallet the size bound allows exports to a file Import reads, and it round-trips', () => {
+    const store = new LocalStore(localStorage);
+    store.put(ME, 'profile', { firstSeen: 1 });
+    store.put(ME, 'account', accountRecord(ACC), { account: ACC });
+    store.put(ME, 'secret', SECRET_A, { account: ACC });
+    const hex = (n: number) => n.toString(16).padStart(64, '0');
+    const many = (count: number) =>
+      Array.from({ length: count }, (_, i) => ({
+        ...coin(String(1_000_000 + i), '01'),
+        nonce: hex(i),
+        commitment: hex(0xc000_0000 + i),
+        mtIndex: String(i),
+        inboxIndex: String(i),
+        spent: i % 2 === 0,
+      }));
+    // As many coins as fit the records bound (what localStorage itself holds), less 2 KB.
+    const limit = MAX_IMPORT_FILE_BYTES - 2_048;
+    const sizeWith = (n: number) => {
+      store.put(ME, 'coins', many(n), { account: ACC });
+      return store.usage().bytes;
+    };
+    const perCoin = (sizeWith(11_000) - sizeWith(10_000)) / 1_000;
+    let count = 11_000 + Math.floor((limit - sizeWith(11_000)) / perCoin);
+    while (sizeWith(count) > limit) count -= 5;
+    expect(count).toBeGreaterThan(10_000);
+    expect(store.usage().bytes).toBeGreaterThan(limit - 6 * perCoin);
+
+    const file = store.exportWallet(ME);
+    const bytes = (t: string) => new TextEncoder().encode(t).length;
+    // The file as the page downloads it is within what Import reads …
+    expect(bytes(exportFileText(file))).toBeLessThanOrEqual(MAX_IMPORT_READ_BYTES);
+    // … and so is the same export written the old way, indented, which the old 5 MB file bound
+    // refused although its records fit.
+    const indented = bytes(`${JSON.stringify(file, null, 2)}\n`);
+    expect(indented).toBeGreaterThan(MAX_IMPORT_FILE_BYTES);
+    expect(indented).toBeLessThanOrEqual(MAX_IMPORT_READ_BYTES);
+
+    const before = snapshot();
+    store.clearAll();
+    expect(store.importWallet(JSON.parse(exportFileText(file)), ME)).toEqual({ imported: 4, replaced: 0 });
+    expect(snapshot()).toEqual(before);
   });
 });
