@@ -10,7 +10,7 @@
 //   passport-call  withdraw, append-inbox, bridge-deposit, bridge-withdraw, open-swap, take: the
 //                  call's own Passport signature; its "nonce" is the account's on-chain auth nonce.
 
-import { type BaseWallet, Wallet } from 'ethers';
+import { type BaseWallet, Wallet, hexlify, randomBytes } from 'ethers';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -584,18 +584,20 @@ describe('bridge-resume admission (security review F-B2)', () => {
     const r = productionRelay({
       env: { JOB_MAX: '10', RATE_LIMIT_ACTIONS_PER_MIN: '1000', RATE_LIMIT_ACTIONS_PER_OWNER_PER_MIN: '1000' },
     });
+    // The review's attack: two EOAs of the attacker's own, each signing resumes in its own name.
+    // (Keys made once: a random HD wallet per request is slow enough to time the test out in CI.)
+    const strangers = [new Wallet(hexlify(randomBytes(32))), new Wallet(hexlify(randomBytes(32)))];
     const statuses: number[] = [];
-    for (let i = 0; i < 25; i++) {
-      const stranger = Wallet.createRandom();
-      statuses.push(
-        (await post(r, 'bridge-resume', await body(r, 'bridge-resume', { signer: stranger, n: i }))).status,
-      );
+    // 12 > the 7 free slots of JOB_MAX 10: before the fix the last ones were refused as "busy".
+    for (let i = 0; i < 12; i++) {
+      const signer = strangers[i % 2]!;
+      statuses.push((await post(r, 'bridge-resume', await body(r, 'bridge-resume', { signer, n: i }))).status);
     }
     expect(new Set(statuses)).toEqual(new Set([401]));
     expect(r.queue.stats().jobs).toBe(3); // only the three lane holders
     expect(r.fake.calls).toEqual([]);
     expect((await post(r, 'bridge-resume', await body(r, 'bridge-resume'))).status).toBe(202);
-  });
+  }, 20_000);
 
   it('answers 503 and keeps nothing when the account cannot be read at admission', async () => {
     const r = productionRelay();
