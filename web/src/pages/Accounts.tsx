@@ -279,7 +279,8 @@ function SummaryFigures({
   const sep = sepoliaValuation(tokens, holdings, value, assets.shows);
   const pass = passportValuation(coins, tokens, value);
   const usdcDec = tokens?.usdc()?.decimals ?? 6;
-  const excluded = [...sep.excluded, ...(hasAccount ? pass.excluded : [])];
+  // One name per token: a token listed under the same name on both sides (TBILL) is named once.
+  const excluded = [...new Set([...sep.excluded, ...(hasAccount ? pass.excluded : [])])];
   return (
     <Figures aria-label="Summary">
       <Figure
