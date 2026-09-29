@@ -7,7 +7,7 @@
 import type { Page } from '@playwright/test';
 import { x25519 } from '@noble/curves/ed25519.js';
 
-import { BOOK, COLOUR } from '../../packages/core/test/fixtures/kernel/book.js';
+import { BOOK, COLOUR, type WireOffer } from '../../packages/core/test/fixtures/kernel/book.js';
 import { KernelFixture, STREAM_HEADERS, connectedEvent } from '../../packages/core/test/fixtures/kernel/mock-kernel.js';
 import { contractCoinCommitment, localCoin, reconcileCoins } from '../../packages/core/src/coins.js';
 import { bytesToHex, hexToBytes } from '../../packages/core/src/hex.js';
@@ -27,14 +27,18 @@ export const SEPOLIA = {
   stkB: '0xf2beff36543219c8fec2ab2f42070aa65d3c844b',
   stkC: '0x70c5c1978e5d428fa5c82111980e1af0a64a270d',
   USDC: '0x1c7d4b196cb0c7b01d743fbc6116a902379c7238',
+  TBILL: '0x1531b11722cf9b600816ed0eacbc49594dbb991f',
+  TB13W: '0x5cf366deca552c30ebb2504d0b9ee104a99f1c72',
+  TB26W: '0x26db7221903e62310409e454442adbb46e0b6e33',
+  TB52W: '0x02a0d1baf66351715a84ac4763b82f1155bdd5b0',
 } as const;
 
 const units = (whole: number) => BigInt(Math.round(whole * 1_000_000));
 
 /** Refuse (and record) anything that would leave the page's origin, and serve the mock kernel. */
-export async function serveExchange(page: Page, opts: { kernelDown?: boolean } = {}) {
+export async function serveExchange(page: Page, opts: { kernelDown?: boolean; book?: WireOffer[] } = {}) {
   const external: string[] = [];
-  const fixture = new KernelFixture({ book: BOOK });
+  const fixture = new KernelFixture({ book: opts.book ?? BOOK });
   await page.route(
     (url) => url.hostname !== '127.0.0.1',
     (route) => {
@@ -63,11 +67,12 @@ export interface Customer {
  * Connect-ready customer. With `withAccount`, the browser already holds the account record and
  * its secret (as after an Import), and the relay's account reads answer with sealed entries for
  * wStkA 60 + 40, wStkB 35.50, wStkC 12 and wUSDC 11 + 9.50, plus a 0.50 wUSDC change coin that
- * has no inbox entry yet (it shows under Pending).
+ * has no inbox entry yet (it shows under Pending). With `withTbills` (plan 00046), the customer
+ * also holds the T-bills: on Sepolia, and TBILL 25 and TB13W 10 in the account.
  */
 export async function installCustomer(
   page: Page,
-  opts: { withAccount: boolean; withTransfers?: boolean; withTrades?: boolean },
+  opts: { withAccount: boolean; withTransfers?: boolean; withTrades?: boolean; withTbills?: boolean },
 ): Promise<Customer> {
   const wallet = await installTestWallet(page, {
     startChainId: '0xaa36a7',
@@ -78,6 +83,14 @@ export async function installCustomer(
         [SEPOLIA.stkB]: units(989_880),
         [SEPOLIA.stkC]: units(999_900),
         [SEPOLIA.USDC]: units(20),
+        ...(opts.withTbills
+          ? {
+              [SEPOLIA.TBILL]: units(1_000),
+              [SEPOLIA.TB13W]: units(500),
+              [SEPOLIA.TB26W]: units(250),
+              [SEPOLIA.TB52W]: units(125),
+            }
+          : {}),
       },
       // The bank's vault account on Sepolia holds gas for withdrawals.
       others: { eth: { [VAULT_EVM]: 1_428_415_000_000_000n } },
@@ -95,6 +108,12 @@ export async function installCustomer(
     { color: COLOUR.wStkC, value: units(12) },
     { color: COLOUR.wUSDC, value: units(11) },
     { color: COLOUR.wUSDC, value: units(9.5) },
+    ...(opts.withTbills
+      ? [
+          { color: COLOUR.TBILL, value: units(25) },
+          { color: COLOUR.TB13W, value: units(10) },
+        ]
+      : []),
   ].map((c, i) => ({ ...c, nonce: nonce(i + 1) }));
   const entries = await Promise.all(
     coins.map(async (c) =>

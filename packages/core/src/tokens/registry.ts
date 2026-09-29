@@ -25,9 +25,9 @@ export interface TokenSource {
 }
 
 export interface TokenEntry {
-  /** The Sepolia ERC20 symbol: stkA, stkB, stkC, USDC. */
+  /** The Sepolia ERC20 symbol: stkA, USDC, TBILL, … */
   symbol: string;
-  /** The bridged token's name on Midnight: wStkA, …, wUSDC. */
+  /** The bridged token's name on Midnight: wStkA, wUSDC, TBILL, … (as the vault's record lists it). */
   midnightName: string;
   role: TokenRole;
   decimals: number;
@@ -38,7 +38,7 @@ export interface TokenEntry {
   /** The vault that mints the bridged colour; '' when not bridged (local test tokens). */
   vault: string;
   /** True while an entry is not yet confirmed by its owner's canonical list. Every stagenet entry
-   *  is confirmed (PR #4's description lists them at `07d8ea4`); configuration may still set it. */
+   *  is confirmed (PR #4's description lists them); configuration may still set it. */
   provisional: boolean;
   source: TokenSource | null;
 }
@@ -125,7 +125,7 @@ export class TokenRegistry {
 
 export const STAGENET_SOURCE: TokenSource = {
   repo: 'acedward/passport',
-  commit: '07d8ea4f4e83ad264b3d2eef536be02047308827',
+  commit: '6c7505a4d2ec223fce5eb10266c331576805465a',
   file: 'contract/contracts/erc20-vault/deployments/stagenet-vault.json',
 };
 
@@ -147,7 +147,7 @@ export function stagenetRegistry(): TokenRegistry {
       sepoliaAddress: getAddress(b.erc20Address),
       midnightColour: normaliseHex32(b.midnightColour),
       vault: normaliseHex32(vaultContractAddress),
-      // Canonical: PR #4's description lists every one of these at `07d8ea4` (PROVENANCE.md).
+      // Canonical: PR #4's description lists every one of these (PROVENANCE.md).
       provisional: false,
       source: STAGENET_SOURCE,
     };

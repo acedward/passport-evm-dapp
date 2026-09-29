@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import { NetworkConfigError, PROFILES, SEPOLIA_CHAIN_ID, bridgeConfigured, resolveNetwork } from '../src/network.js';
+import {
+  NETWORK_DEFAULT_ASSETS,
+  NetworkConfigError,
+  PROFILES,
+  SEPOLIA_CHAIN_ID,
+  bridgeConfigured,
+  resolveNetwork,
+} from '../src/network.js';
+import { stagenetRegistry } from '../src/tokens/registry.js';
 
 describe('network profiles', () => {
   it('stagenet points at the live staging endpoints and the PR #4 vault', () => {
@@ -52,6 +60,14 @@ describe('network profiles', () => {
     expect(() => resolveNetwork('stagenet', { zswap: { kernel: 'x' } } as never)).toThrow(/zswap.kernel/);
     expect(() => resolveNetwork('stagenet', { zswap: { kernelUrl: 'not a url' } })).toThrow(/zswap.kernelUrl/);
     expect(() => resolveNetwork('undeployed', { bridge: { vaultAddress: 'XYZ' } })).toThrow(/bridge.vaultAddress/);
+  });
+
+  it('the default asset sets (plan 00046, data): stagenet shows the stk line, the local stack everything', () => {
+    expect(NETWORK_DEFAULT_ASSETS.stagenet).toEqual(['USDC', 'stkA', 'stkB', 'stkC']);
+    expect(NETWORK_DEFAULT_ASSETS.undeployed).toBeNull();
+    // Every symbol of the stagenet default is one the vendored registry knows.
+    const symbols = stagenetRegistry().tokens.map((t) => t.symbol);
+    for (const s of NETWORK_DEFAULT_ASSETS.stagenet!) expect(symbols).toContain(s);
   });
 
   it('never carries a keyed RPC: the only EVM RPC is the public one offered to wallets', () => {

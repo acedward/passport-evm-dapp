@@ -10,9 +10,9 @@ const deployments = (name: string) => fileURLToPath(new URL(`../src/tokens/deplo
 const sha256 = (path: string) => createHash('sha256').update(readFileSync(path)).digest('hex');
 
 describe('vendored deployment records', () => {
-  it('are byte-identical to acedward/passport @ 07d8ea4 (PROVENANCE.md)', () => {
+  it('are byte-identical to acedward/passport @ 6c7505a / 07d8ea4 (PROVENANCE.md)', () => {
     expect(sha256(deployments('stagenet-vault.json'))).toBe(
-      '5a0a2538d12ed8e1814fbf97c410bebcc333ab737316960673d58f0005ea4d4c',
+      '8897b1eeb72bff8a5dd7038aca9556cc9308246352ef7e0a277a2f5024453a67',
     );
     expect(sha256(deployments('sepolia-stk.json'))).toBe(
       '0c9718001ad5e58ef7fb46de740ba1c9cd452d5257a465c6a4ada99918e7bee7',
@@ -23,10 +23,20 @@ describe('vendored deployment records', () => {
 describe('the stagenet registry', () => {
   const r = stagenetRegistry();
 
-  it('maps USDC to the usdc role and stkA/B/C to stocks', () => {
+  it('maps USDC to the usdc role and every other bridged token to a stock, in the file order', () => {
     expect(r.usdc().symbol).toBe('USDC');
     expect(r.usdc().midnightName).toBe('wUSDC');
-    expect(r.stocks().map((t) => t.midnightName)).toEqual(['wStkA', 'wStkB', 'wStkC']);
+    expect(r.tokens).toHaveLength(8);
+    expect(r.stocks().map((t) => t.midnightName)).toEqual([
+      'wStkA',
+      'wStkB',
+      'wStkC',
+      'TBILL',
+      'TB13W',
+      'TB26W',
+      'TB52W',
+    ]);
+    expect(r.tokens.map((t) => t.symbol)).toEqual(['stkA', 'stkB', 'stkC', 'USDC', 'TBILL', 'TB13W', 'TB26W', 'TB52W']);
   });
 
   it('carries the pinned addresses, colours and decimals (plan Pins table)', () => {
@@ -45,11 +55,44 @@ describe('the stagenet registry', () => {
     for (const t of r.tokens) {
       expect(t.decimals).toBe(6);
       expect(t.vault).toBe('7771c9e53afb45291ae2cecd48b5d55262734b08a98fc8276ed0f980031cd637');
-      expect(t.source?.commit).toBe('07d8ea4f4e83ad264b3d2eef536be02047308827');
+      expect(t.source?.commit).toBe('6c7505a4d2ec223fce5eb10266c331576805465a');
     }
   });
 
-  it('marks every entry confirmed: PR #4 lists them as canonical at 07d8ea4, USDC included', () => {
+  // PR #4's "TBILL for MN Bank" and "Test T-Bill series for MN Bank" sections (@ 6c7505a).
+  it.each([
+    [
+      'TBILL',
+      '0x1531b11722CF9b600816ED0eAcBc49594DbB991f',
+      '05b32284398b1a75dac4f92dcb8802a57ce2194dd3cae781f870430c18a8a8e9',
+    ],
+    [
+      'TB13W',
+      '0x5cF366decA552c30eBB2504d0b9Ee104A99f1c72',
+      'b3d96e9933fb4548ce8a17a63f4c92bb3894b3571873c3edcc8a08aa7ce2512b',
+    ],
+    [
+      'TB26W',
+      '0x26dB7221903e62310409e454442adBb46E0B6E33',
+      '7b044b55c0493a67eeb16f25d3757eea07f9abaf55e374739953afd449bc3b62',
+    ],
+    [
+      'TB52W',
+      '0x02A0D1BaF66351715A84aC4763b82f1155BdD5b0',
+      '8f4798a5ee48747f37562da76ed8711ad4b4ea1ad7ac16d80eb74b92792b9ec2',
+    ],
+  ])('carries %s as PR #4 lists it: no "w", a stock, its address and colour', (symbol, address, colour) => {
+    const t = r.byMidnightName(symbol);
+    expect(t?.symbol).toBe(symbol);
+    expect(t?.role).toBe('stock');
+    expect(t?.sepoliaAddress).toBe(address);
+    expect(t?.midnightColour).toBe(colour);
+    expect(r.bySepoliaAddress(address)).toBe(t);
+    expect(r.byColour(colour)).toBe(t);
+    expect(r.isTradablePair(r.usdc().midnightColour, colour)).toBe(true);
+  });
+
+  it('marks every entry confirmed: PR #4 lists them as canonical, USDC included', () => {
     expect(r.usdc().provisional).toBe(false);
     expect(r.tokens.every((t) => !t.provisional)).toBe(true);
   });

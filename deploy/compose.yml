@@ -151,6 +151,7 @@ services:
       WEB_RELAY_UPSTREAM: relay:8080
       WEB_TRUSTED_PROXIES: ${WEB_TRUSTED_PROXIES:-127.0.0.1/32,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}
       WEB_CONTENT_SECURITY_POLICY: ${WEB_CONTENT_SECURITY_POLICY:-}
+      WEB_ASSETS: ${WEB_ASSETS:-}
     read_only: true
     tmpfs:
       - /tmp

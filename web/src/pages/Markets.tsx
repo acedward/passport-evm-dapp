@@ -160,7 +160,7 @@ function Book({ market, onClose }: { market: Market; onClose(): void }) {
             {[
               spread !== null ? `Spread ${spread}` : null,
               `last trade ${lastTradeText(market.lastTrade)}`,
-              'prices in USDC per stock',
+              `prices in USDC per ${stock}`,
             ]
               .filter(Boolean)
               .join(' · ')}
@@ -214,9 +214,9 @@ export function Markets() {
 
   const head = (
     <PageHead
-      eyebrow="Stocks priced in USDC"
+      eyebrow="Assets priced in USDC"
       title="Markets"
-      lede="Prices come only from live offers on the exchange. A stock without offers shows “no liquidity”; prices are never estimated."
+      lede="Prices come only from live offers on the exchange. An asset without offers shows “no liquidity”; prices are never estimated."
       actions={<FeedStatus state={state} />}
     />
   );
@@ -258,9 +258,9 @@ export function Markets() {
       <Panel>
         <StatementTable
           data-testid="markets-table"
-          caption="Stocks against USDC"
+          caption="Assets against USDC"
           columns={[
-            { label: 'Stock' },
+            { label: 'Asset' },
             { label: 'Best bid', sub: 'USDC', align: 'right' },
             { label: 'Best ask', sub: 'USDC', align: 'right' },
             { label: 'Last trade', sub: 'USDC', align: 'right' },
@@ -338,7 +338,7 @@ export function Markets() {
             );
           })}
         </StatementTable>
-        <p className="table-note">Holdings are valued at the best bid; a stock with no bid is not valued.</p>
+        <p className="table-note">Holdings are valued at the best bid; an asset with no bid is not valued.</p>
         {ignored && (
           <p className="table-note" data-testid="ignored-offers">
             {ignored}

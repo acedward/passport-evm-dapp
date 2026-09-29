@@ -149,5 +149,5 @@ export function ignoredText(state: FeedState): string | null {
   if (state.status !== 'ready') return null;
   const n = Object.values(state.snapshot.ignored).reduce((t, x) => t + (x ?? 0), 0);
   if (n === 0) return null;
-  return `${n} other ${n === 1 ? 'offer' : 'offers'} with a USDC leg ${n === 1 ? 'is' : 'are'} not USDC against one stock (a basket, an unshielded leg or an unlisted token) and ${n === 1 ? 'is' : 'are'} not shown.`;
+  return `${n} other ${n === 1 ? 'offer' : 'offers'} with a USDC leg ${n === 1 ? 'is' : 'are'} not USDC against one other asset (a basket, an unshielded leg or an unlisted token) and ${n === 1 ? 'is' : 'are'} not shown.`;
 }

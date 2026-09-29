@@ -303,8 +303,8 @@ export function Trade({ network, relayUrl }: { network: NetworkProfile; relayUrl
       title="Trade"
       lede={
         usdc
-          ? `Every trade is a stock against ${usdc.midnightName}, at a price in ${usdc.midnightName}. Take an existing offer now, or place your own at your price. You sign once per trade; the bank pays the network fees.`
-          : 'Every trade is a stock against USDC. Take an existing offer now, or place your own at your price.'
+          ? `Every trade is one asset against ${usdc.midnightName}, at a price in ${usdc.midnightName}. Take an existing offer now, or place your own at your price. You sign once per trade; the bank pays the network fees.`
+          : 'Every trade is one asset against USDC. Take an existing offer now, or place your own at your price.'
       }
     />
   );
@@ -618,7 +618,7 @@ export function Trade({ network, relayUrl }: { network: NetworkProfile; relayUrl
               }}
             />
           </Field>
-          <Field label="Stock" htmlFor="tr-stock">
+          <Field label="Asset" htmlFor="tr-stock">
             <Select
               id="tr-stock"
               value={stock.midnightName}
@@ -648,7 +648,7 @@ export function Trade({ network, relayUrl }: { network: NetworkProfile; relayUrl
               />
             </Field>
             <Field
-              label="Price per stock"
+              label={`Price per ${stock.midnightName}`}
               htmlFor="tr-price"
               hint={
                 <Button variant="link" onClick={() => prefill(side)} data-testid="make-prefill">

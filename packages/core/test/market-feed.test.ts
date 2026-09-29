@@ -77,7 +77,18 @@ describe('the markets feed', () => {
     expect(offersReqs[0]!.query.get('token')).toBe(COLOUR.wUSDC);
     expect(kernel.log.some((p) => p.startsWith('/v1/prices') || p.startsWith('/v1/quote'))).toBe(false);
     // One refresh = one book page, the pairs, and one stats request per stock.
-    expect(log.sort()).toEqual(['/v1/chart/stats', '/v1/chart/stats', '/v1/chart/stats', '/v1/offers', '/v1/pairs']);
+    // Seven stocks since the re-vendor (AA 00046): stkA/B/C and the four T-bills.
+    expect(log.sort()).toEqual([
+      '/v1/chart/stats',
+      '/v1/chart/stats',
+      '/v1/chart/stats',
+      '/v1/chart/stats',
+      '/v1/chart/stats',
+      '/v1/chart/stats',
+      '/v1/chart/stats',
+      '/v1/offers',
+      '/v1/pairs',
+    ]);
   });
 
   it('follows the offer stream: a new offer refreshes the market', async () => {

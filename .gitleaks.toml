@@ -44,8 +44,9 @@ paths = [
 ]
 
 # The vendored PR #4 deployment records (PROVENANCE.md): the values the default generic-api-key
-# rule flags there are PUBLIC keys (the MPC's and the deployer's). Scoped to that rule, those
-# files AND those field names only. (A top-level [[allowlists]] with targetRules does not reach a
+# rule flags there are PUBLIC keys (the MPC's and the deployer's) and the SHA-256 of a PUBLIC
+# verifier key (the MIP-0018 circuit's, which PR #4's description lists; since the 6c7505a
+# re-vendor). Scoped to that rule, those files AND those field names only. (A top-level [[allowlists]] with targetRules does not reach a
 # default rule in gitleaks 8.28; extending the rule's own allowlist does.)
 [[rules]]
 id = "generic-api-key"
@@ -53,7 +54,7 @@ id = "generic-api-key"
 condition = "AND"
 paths = ['''(^|/)packages/core/src/tokens/deployments/[a-z0-9-]+\.json$''']
 regexTarget = "match"
-regexes = ['''^(?:mpcResponseKey|mpcRootPublicKey|deployerPublicKey)"''']
+regexes = ['''^(?:mpcResponseKey|mpcRootPublicKey|deployerPublicKey|publishTokenMetadata|verifierKeySha256)"''']
 
 # The staging kernel's GET /v1/known-tokens, captured verbatim (a test fixture): the values the
 # rule flags there are PUBLIC token colours. Scoped to that rule, that capture AND that field.

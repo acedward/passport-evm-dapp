@@ -1,6 +1,11 @@
 // The asset filter (plan 00042): an opt-in whitelist, set by the page's URL, of the assets the
 // site shows. `https://<bank>/?assets=USDC,TBILL` keeps the list in this browser's local data and
-// shows only those assets, everywhere tokens appear; with no list, everything is shown, as before.
+// shows only those assets, everywhere tokens appear; with no list, the site's whole set is shown.
+//
+// The site's set (plan 00046) is the ceiling: each domain serves one build with its own
+// `config.json` `assets` (or its network's default set, which is data), and the URL's list only
+// narrows within it. `?assets=all` goes back to the site's set; a listed symbol outside it is
+// named "not available on this site" and never shown.
 //
 // The rules are generic on purpose (owner, 2026-09-28): an asset is a symbol and a Midnight name,
 // a market is any two assets, and no asset is special. A market shows only when BOTH of its assets
@@ -125,7 +130,10 @@ export interface AssetView {
   listed: readonly string[];
   /** The listed symbols this site has an asset for. */
   known: readonly string[];
-  /** The listed symbols this site has no asset for (yet): named in the note. */
+  /** The listed symbols the bank has an asset for, outside this site's set: named in the note as
+   *  not available on this site, and never shown. */
+  unavailable: readonly string[];
+  /** The listed symbols the bank has no asset for (yet): named in the note. */
   unknown: readonly string[];
   /** True when the view is narrowed: a list is stored and at least one of its symbols is known.
    *  A list of only unknown symbols narrows nothing, so a typo never blanks the site. */
@@ -140,21 +148,87 @@ const namesOf = (a: FilterAsset) => [a.symbol.toLowerCase(), a.midnightName.toLo
 /**
  * The view a list gives over a site's assets. Matching ignores case and accepts either name
  * (`USDC`, `usdc` and `wUSDC` all list the same asset). `alwaysVisible` assets (Sepolia ETH, which
- * pays for gas) are shown whatever the list, and count as known when listed.
+ * pays for gas) are shown whatever the list, and count as known when listed. `site` is the site's
+ * set (`resolveSiteAssets`; null = every asset): nothing outside it is shown, whatever the list.
  */
 export function assetView(
   listed: readonly string[] | null,
   assets: readonly FilterAsset[],
   alwaysVisible: readonly FilterAsset[] = [],
+  site: readonly string[] | null = null,
 ): AssetView {
   const list = listed ?? [];
   const wanted = new Set(list.map((s) => s.toLowerCase()));
-  const everything = [...assets, ...alwaysVisible];
-  const known = list.filter((s) => everything.some((a) => namesOf(a).includes(s.toLowerCase())));
-  const unknown = list.filter((s) => !known.includes(s));
+  const siteNames = site === null ? null : new Set(site.map((s) => s.toLowerCase()));
+  const onSite = (a: FilterAsset) => siteNames === null || namesOf(a).some((n) => siteNames.has(n));
+  const names = (xs: readonly FilterAsset[], s: string) => xs.some((a) => namesOf(a).includes(s.toLowerCase()));
+  const siteAssets = [...assets.filter(onSite), ...alwaysVisible];
+  const known = list.filter((s) => names(siteAssets, s));
+  const unavailable = list.filter((s) => !known.includes(s) && names(assets, s));
+  const unknown = list.filter((s) => !known.includes(s) && !unavailable.includes(s));
   const filtering = known.length > 0;
   const fixed = new Set(alwaysVisible.flatMap(namesOf));
   const shows = (a: FilterAsset) =>
-    !filtering || namesOf(a).some((n) => wanted.has(n)) || namesOf(a).some((n) => fixed.has(n));
-  return { listed: list, known, unknown, filtering, shows, showsPair: (a, b) => shows(a) && shows(b) };
+    namesOf(a).some((n) => fixed.has(n)) || (onSite(a) && (!filtering || namesOf(a).some((n) => wanted.has(n))));
+  return { listed: list, known, unavailable, unknown, filtering, shows, showsPair: (a, b) => shows(a) && shows(b) };
+}
+
+// ── The site's set (plan 00046) ─────────────────────────────────────────────
+
+/** `config.json`'s `assets` value that shows every asset. */
+export const SITE_ASSETS_ALL = 'all';
+
+export interface SiteAssets {
+  /** The site's set, as the site's assets spell their symbols; null = every asset. */
+  set: string[] | null;
+  /** What was wrong with the configuration (the console names it). */
+  warnings: string[];
+}
+
+/**
+ * A site's asset set: `config.json`'s `assets` (a list of symbols, or "all"), else the network's
+ * default set (data; null = every asset). Symbols match either name, in any case. A symbol the
+ * site has no asset for is ignored, with a warning; when none is known, the network's default
+ * applies, with a warning, so a typo never blanks the site.
+ */
+export function resolveSiteAssets(
+  configured: unknown,
+  networkDefault: readonly string[] | null,
+  assets: readonly FilterAsset[],
+): SiteAssets {
+  const warnings: string[] = [];
+  const pick = (list: readonly unknown[]) => {
+    const set: string[] = [];
+    const unknown: string[] = [];
+    for (const s of list) {
+      const a = typeof s === 'string' ? assets.find((x) => namesOf(x).includes(s.trim().toLowerCase())) : undefined;
+      if (!a) unknown.push(typeof s === 'string' ? s : JSON.stringify(s));
+      else if (!set.includes(a.symbol)) set.push(a.symbol);
+    }
+    return { set, unknown };
+  };
+  const fallback = (): SiteAssets => {
+    if (networkDefault === null) return { set: null, warnings };
+    const { set, unknown } = pick(networkDefault);
+    if (unknown.length > 0)
+      warnings.push(`the network's default asset set names unknown assets: ${unknown.join(', ')}`);
+    if (set.length > 0) return { set, warnings };
+    warnings.push("none of the network's default assets is known: every asset is shown");
+    return { set: null, warnings };
+  };
+  if (configured === undefined) return fallback();
+  if (typeof configured === 'string' && configured.trim().toLowerCase() === SITE_ASSETS_ALL) {
+    return { set: null, warnings };
+  }
+  if (!Array.isArray(configured)) {
+    warnings.push(
+      `config.json "assets" must be a list of symbols or "${SITE_ASSETS_ALL}"; using the network's default`,
+    );
+    return fallback();
+  }
+  const { set, unknown } = pick(configured);
+  if (unknown.length > 0) warnings.push(`config.json "assets": ignoring unknown assets: ${unknown.join(', ')}`);
+  if (set.length > 0) return { set, warnings };
+  warnings.push(`config.json "assets" names no known asset; using the network's default`);
+  return fallback();
 }

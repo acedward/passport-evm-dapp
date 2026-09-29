@@ -1,6 +1,7 @@
 // The asset filter for every view (plan 00042): ONE source, the list in this browser's local data
-// (./filter.ts), applied to the bank's token list. Accounts, Markets, Trade and Transfers ask it
-// what to show; nothing else changes. With no list, every asset shows, exactly as before.
+// (./filter.ts), applied to the bank's token list within the site's set (plan 00046: config.json
+// `assets`, or the network's default). Accounts, Markets, Trade and Transfers ask it what to show;
+// nothing else changes. With no list, the site's whole set shows.
 //
 //   const assets = useAssetFilter();
 //   tokens.filter(assets.shows)                 the assets to list
@@ -32,13 +33,20 @@ export interface AssetFilterValue extends AssetView {
 
 const Ctx = createContext<AssetFilterValue | null>(null);
 
-export function AssetFilterProvider({ children }: { children: ReactNode }) {
+export function AssetFilterProvider({
+  site = null,
+  children,
+}: {
+  /** The site's set (SiteConfig.assets); null = every asset. */
+  site?: readonly string[] | null;
+  children: ReactNode;
+}) {
   const { store, revision } = useStore();
   const registry = useTokenRegistry();
   const [pageLoad, setPageLoad] = useState<string[] | null>(() => pageLoadAssets.list);
   const value = useMemo<AssetFilterValue>(
     () => {
-      const view = assetView(readAssetFilter(store) ?? pageLoad, registry?.tokens ?? [], [ETH_ASSET]);
+      const view = assetView(readAssetFilter(store) ?? pageLoad, registry?.tokens ?? [], [ETH_ASSET], site);
       return {
         ...view,
         showsColour: (colour) => {
@@ -53,7 +61,7 @@ export function AssetFilterProvider({ children }: { children: ReactNode }) {
     },
     // `revision` changes on every store write, here or in another tab (CLEAR ALL, Import).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [store, revision, registry, pageLoad],
+    [store, revision, registry, pageLoad, site],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
@@ -65,11 +73,15 @@ export function useAssetFilter(): AssetFilterValue {
 }
 
 /** The words for an active list: which assets show, and which listed ones this site lacks. */
-export function assetFilterText(f: Pick<AssetView, 'filtering' | 'known' | 'unknown'>): string {
-  const lead = f.filtering
-    ? `Showing only ${f.known.join(', ')}.`
-    : 'None of the listed assets is on this site, so every asset is shown.';
-  return f.unknown.length > 0 ? `${lead} Not on this site yet: ${f.unknown.join(', ')}.` : lead;
+export function assetFilterText(f: Pick<AssetView, 'filtering' | 'known' | 'unavailable' | 'unknown'>): string {
+  const words = [
+    f.filtering
+      ? `Showing only ${f.known.join(', ')}.`
+      : 'None of the listed assets is on this site, so every asset is shown.',
+  ];
+  if (f.unavailable.length > 0) words.push(`Not available on this site: ${f.unavailable.join(', ')}.`);
+  if (f.unknown.length > 0) words.push(`Not on this site yet: ${f.unknown.join(', ')}.`);
+  return words.join(' ');
 }
 
 /** The header note while a list is stored (spec US1.4, FR-005), with the way back to everything. */

@@ -86,6 +86,10 @@ describe('the markets from a book (spec US3, SC-002)', () => {
       ['wStkA', 'wUSDC'],
       ['wStkB', 'wUSDC'],
       ['wStkC', 'wUSDC'],
+      ['TBILL', 'wUSDC'],
+      ['TB13W', 'wUSDC'],
+      ['TB26W', 'wUSDC'],
+      ['TB52W', 'wUSDC'],
     ]);
   });
 
