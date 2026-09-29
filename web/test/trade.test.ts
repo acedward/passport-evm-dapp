@@ -290,7 +290,7 @@ describe('make an offer (L-TRD.1)', () => {
     // 12 wUSDC: the account holds 8 + 6, but no single coin of 12.
     const legs = orderLegs('buy', STOCK, USDC, 10n * U, parsePrice('1.2', USDC));
     await expect(makeOffer(e, ACCOUNT, legs, { stock: STOCK, usdc: USDC })).rejects.toThrow(
-      'Needs 12.00 wUSDC from one coin; your largest single payment is 8.00.',
+      'Not enough wUSDC in one coin. You hold 14.00 wUSDC; one payment can use at most 8.00.',
     );
     expect(signed).toHaveLength(0);
   });
@@ -375,7 +375,7 @@ describe('take an offer (L-TRD.2)', () => {
           usdc: USDC,
         },
       ),
-    ).rejects.toThrow('Needs 9.00 wUSDC from one coin; your largest single payment is 8.00.');
+    ).rejects.toThrow('Not enough wUSDC in one coin. You hold 14.00 wUSDC; one payment can use at most 8.00.');
     expect(signed).toHaveLength(0);
   });
 });
