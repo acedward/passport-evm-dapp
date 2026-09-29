@@ -201,7 +201,8 @@ for (const vp of VIEWPORTS) {
     });
 
     // Plan P4-A: Trade on the design system — the order form, the book, a take being reviewed
-    // (with a line one coin cannot pay), the live-offer rule and My offers.
+    // (with a line the account cannot pay: a greyed Buy that says why, AA 00044), the live-offer
+    // rule and My offers.
     test('Trade: the order form, the book, a take under review and My offers', async ({ page }) => {
       const ex = await serveExchange(page);
       await installCustomer(page, { withAccount: true, withTrades: true });
@@ -210,7 +211,8 @@ for (const vp of VIEWPORTS) {
       await expect(page.locator('[data-testid=trade-line]').first()).toBeVisible();
       await expect(page.getByTestId('live-offer-banner')).toContainText('sell 2.00 wStkA at 1.10');
       await expect(page.locator('[data-testid=my-trade]')).toHaveCount(2);
-      await expect(page.locator('[data-testid=not-takeable]').first()).toContainText('Not takeable:');
+      await expect(page.locator('[data-testid=take-line-not-enough]').first()).toBeDisabled();
+      await expect(page.locator('[data-testid=not-takeable]')).toHaveCount(0);
       // The design components, not the old plain markup.
       await expect(page.getByTestId('make-section')).toHaveClass(/panel/);
       await expect(page.getByTestId('take-section')).toHaveClass(/panel/);
@@ -223,6 +225,14 @@ for (const vp of VIEWPORTS) {
       await expect(page.getByTestId('take-confirm')).toBeVisible();
       await assertLayout(page, vp.touch);
       await shot(page, `${vp.name}-trade`);
+      // The greyed Buy's tooltip open (a tap on the phone, a hover on the desktop) fits the page.
+      const notEnough = page.locator('[data-testid=not-enough]').first();
+      if (vp.touch) await notEnough.tap();
+      else await notEnough.hover();
+      await expect(notEnough.getByTestId('tooltip')).toBeVisible();
+      await expect(notEnough.getByTestId('tooltip')).toHaveText(/^Not enough wUSDC\. You hold [0-9.,]+ wUSDC\.$/);
+      await assertLayout(page, vp.touch);
+      await shot(page, `${vp.name}-trade-not-enough`);
       expect(ex.external).toEqual([]);
     });
 

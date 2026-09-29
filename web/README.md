@@ -118,11 +118,14 @@ give every non-first cell its column's `label`:
 A value with a second line under it goes in one `<span className="num-wrap">value<Sub>second
 line</Sub></span>`, so the phone layout keeps the line under the value. An order book is
 `<StatementTable variant="book" …>`: it stays a compact table on a phone, with the Take button in
-`<td className="act">`. A line the account cannot take: a disabled small `Button`, then
-`<tr className="reason"><td colSpan={4}>Not takeable — needs a single 12.00 wUSDC coin; your
-largest is 11.00.</td></tr>` (give the line above `className="has-reason"`), or the inline
-`<NotTakeable reason="…" />`. The account's own offer: `<YoursBadge />` ("Your offer"). A holdings
-row: `AssetCell symbol="wStkA" name="Stock A" origin=…`; a subtotal: `SubtotalRow` in `foot`.
+`<td className="act">`. A line the account cannot pay: the disabled small `Button`, in place,
+wrapped in a `Tooltip` that says why on hover, keyboard focus and tap (no extra row):
+`<Tooltip id="nt-…" text="Not enough wStkA. You hold 100.00 wStkA."><Button … disabled
+aria-describedby="nt-…">Sell</Button></Tooltip>`. The wrapper is the focusable part, and `id` names
+the visually hidden copy of the text the button's `aria-describedby` points to; the sentence
+comes from `fundWithOneCoin` (`notEnoughText`). The account's own offer: `<YoursBadge />` ("Your
+offer"). A holdings row: `AssetCell symbol="wStkA" name="Stock A" origin=…`; a subtotal:
+`SubtotalRow` in `foot`.
 
 **Badges and states.** `Badge tone="green|navy|grey|gold|red"` (a market's Two-sided / Bids only /
 No liquidity), `StatusPill status="live|filled|cancelled|progress|refunded|failed|done|idle"` (an

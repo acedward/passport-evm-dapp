@@ -1,6 +1,7 @@
 // Plan P1.5: the MN Bank components render the markup their styles and the pages' tests rely on.
 
-import type { ReactElement } from 'react';
+import { act, type ReactElement } from 'react';
+import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
@@ -17,6 +18,7 @@ import {
   StatementTable,
   StatusPill,
   SubtotalRow,
+  Tooltip,
   UnitInput,
   formatMoney,
   shortHex,
@@ -100,6 +102,58 @@ describe('badges, buttons, notices', () => {
     const id = /<span class="unit" id="([^"]+)">stkB<\/span>/.exec(out)?.[1];
     expect(id).toBeTruthy();
     expect(out).toContain(`aria-describedby="${id}"`);
+  });
+});
+
+describe('the tooltip on a greyed-out control (AA 00044)', () => {
+  const text = 'Not enough wStkA. You hold 100.00 wStkA.';
+  const el = (
+    <Tooltip id="nt-1" text={text} data-testid="not-enough">
+      <Button size="small" variant="secondary" disabled aria-describedby="nt-1">
+        Sell
+      </Button>
+    </Tooltip>
+  );
+
+  it('wraps the disabled control in a focusable wrapper, describes it by a visually hidden copy, bubble closed', () => {
+    const out = html(el);
+    expect(out).toMatch(/^<span data-testid="not-enough" class="tip" tabindex="0">/);
+    expect(out).toContain(
+      '<button type="button" class="btn btn-secondary btn-small" disabled="" aria-describedby="nt-1">Sell</button>',
+    );
+    expect(out).toContain(`<span class="sr-only" id="nt-1">${text}</span>`);
+    expect(out).toContain(`<span class="tip-bubble" aria-hidden="true" data-testid="tooltip">${text}</span>`);
+    expect(out).not.toContain('tip-open');
+  });
+
+  it('opens on hover, on focus and on tap; Escape closes it; leaving resets it', async () => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(el));
+    const wrap = host.querySelector<HTMLElement>('.tip')!;
+    const open = () => wrap.classList.contains('tip-open');
+    const fire = (ev: Event, target: EventTarget = wrap) => act(async () => void target.dispatchEvent(ev));
+    expect(open()).toBe(false);
+
+    await fire(new MouseEvent('mouseover', { bubbles: true, relatedTarget: document.body }));
+    expect(open()).toBe(true);
+    await fire(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }), document);
+    expect(open()).toBe(false);
+    await fire(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body }));
+    expect(open()).toBe(false);
+
+    await act(async () => wrap.focus());
+    expect(document.activeElement).toBe(wrap);
+    expect(open()).toBe(true);
+    await act(async () => wrap.blur());
+    expect(open()).toBe(false);
+
+    await fire(new MouseEvent('click', { bubbles: true }));
+    expect(open()).toBe(true);
+    await act(async () => root.unmount());
+    host.remove();
   });
 });
 

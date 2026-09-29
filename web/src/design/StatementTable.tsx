@@ -36,8 +36,8 @@ export interface StatementTableProps extends TableHTMLAttributes<HTMLTableElemen
   variant?: 'ledger' | 'book';
   /** A caption read by screen readers (the visible title is usually the panel's). */
   caption?: ReactNode;
-  /** The children are <tbody> row groups themselves (a book line with its reason row under it),
-   *  not rows: they are not wrapped in one <tbody>. */
+  /** The children are <tbody> row groups themselves (one per book line), not rows: they are not
+   *  wrapped in one <tbody>. */
   groups?: boolean;
 }
 
