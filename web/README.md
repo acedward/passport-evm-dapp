@@ -3,14 +3,44 @@
 A static Vite + React site. Every per-user record lives in the browser's local storage (see
 `src/store/`); the relay keeps none. Build it with `bun run build:web` from the repository root.
 
+## Each site's asset set (`config.json` `assets`)
+
+One build serves several domains. Each domain serves its own `config.json` next to `index.html`,
+and its optional `assets` is that site's asset set: a list of symbols, or `"all"`.
+
+| Site | `config.json` | Shows |
+|---|---|---|
+| The bank domain | `{"network":"stagenet","relayUrl":"/relay"}` | the stagenet default set: USDC, stkA, stkB, stkC (wUSDC, wStkA/B/C on Midnight) and their three markets |
+| `https://stagenet.tbank.zkdojo.com/` | `{"network":"stagenet","relayUrl":"/relay","assets":["USDC","TBILL","TB13W","TB26W","TB52W"]}` | USDC and the four T-bills, and their four markets |
+| Any site | `{"network":"stagenet","relayUrl":"/relay","assets":"all"}` | all 8 tokens, 7 markets |
+
+- Without `assets`, a site shows its network's default set: data beside the network profiles
+  (`NETWORK_DEFAULT_ASSETS` in `packages/core/src/network.ts`). Stagenet's is USDC and stkA/B/C;
+  the local `undeployed` stack has none, so it shows everything. A site that configures its own
+  `tokens` list shows all of them unless it names `assets`.
+- Symbols match the ERC20 symbol or the Midnight name, in any case. A symbol the bank does not
+  have is ignored, with a warning in the browser console (`MN Bank: …`). If none is known, the
+  network's default set applies, with a warning: a typo never blanks the site.
+- No token is special in the code: the lists live in data (the vendored records, the default set,
+  `config.json`).
+- The site needs a **secure origin** (https, or `localhost` in development). The page derives and
+  encrypts the account's keys with WebCrypto, which browsers only offer on a secure origin: over
+  plain `http://` the page cannot open or use an account.
+- Browser storage is per origin: each domain has its own accounts, records and filter. A customer
+  of one domain keeps nothing on the other (Export and Import move an account between them).
+- One relay serves every domain: it knows all the bank's tokens.
+
 ## Showing only some assets (`?assets=`)
 
 A link such as `https://<bank>/?assets=USDC,TBILL` keeps that list in the browser's local data
 (`mn-bank/v1/_global/settings/asset-filter`) and removes the parameter from the address bar; from
-then on the site shows only those assets, everywhere tokens appear. A market shows only when both
-of its assets are listed; no asset is special. Symbols match the ERC20 symbol or the Midnight
-name, in any case (`usdc`, `wUSDC`); well-formed symbols the site does not know yet stay in the
-list and are named in the note under the tabs, and a list of only unknown symbols shows everything.
+then on the site shows only those assets, everywhere tokens appear. The list only narrows within
+the site's set: `?assets=all` goes back to the site's whole set, and a bank token outside it is
+named as "not available on this site" and never shown. A market shows only when both of its
+assets are listed; no asset is special. Symbols match the ERC20 symbol or the Midnight name, in
+any case (`usdc`, `wUSDC`); well-formed symbols the bank does not know yet stay in the list and
+are named in the note under the tabs, and a list with nothing on this site shows the site's whole
+set.
 Sepolia ETH (gas) always shows, as does anything waiting for the customer (a change coin to
 record, a live offer, a transfer in progress). `?assets=all` or `?assets=`, **Show all assets**
 (under the tabs, or in Local data) and CLEAR ALL clear it; Export and Import carry it. It only
@@ -56,7 +86,7 @@ pass `data-*`, `id`, `role`, `aria-*` and event props straight through to their 
   <PageHead
     eyebrow="Buy and sell at USDC prices"
     title="Trade"
-    lede="Every trade is a stock against USDC. Take an existing offer now, or place your own at your price."
+    lede="Every trade is one asset against USDC. Take an existing offer now, or place your own at your price."
   />
   <div className="trade-grid">…</div>
 </section>
@@ -80,7 +110,7 @@ card that invites an action). Two panels side by side: `<div className="form-gri
   <Field label="Quantity" htmlFor="tr-qty" hint="Largest single payment: 11.00 wUSDC">
     <UnitInput id="tr-qty" unit="wStkA" inputMode="decimal" value={qty} onChange={…} data-testid="order-quantity" />
   </Field>
-  <Field label="Stock" htmlFor="tr-stock"><Select id="tr-stock" …>…</Select></Field>
+  <Field label="Asset" htmlFor="tr-stock"><Select id="tr-stock" …>…</Select></Field>
   <div className="legs">                         {/* the exact legs, as in the mockup */}
     <div className="leg"><span className="k">You give</span><span className="v num">10.50 wUSDC</span></div>
     <div className="leg"><span className="k">You receive</span><span className="v num">10.00 wStkA</span></div>

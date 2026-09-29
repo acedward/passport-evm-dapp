@@ -9,8 +9,8 @@ A customer with only an EVM wallet (MetaMask or any EIP-1193 wallet) can:
 1. **Open an account.** Connect the wallet and open a Passport account on Midnight with one signature. The wallet is the account's key; no Midnight wallet is needed.
 2. **See holdings.** See the tokens held on Sepolia and in the Passport account, side by side, like a bank statement.
 3. **Bridge both ways.** Move tokens from Sepolia into the Passport account on Midnight, and back out to any Sepolia address.
-4. **See prices.** See the USDC price of each tokenised stock, taken only from the live ZSwap offer book. A pair with no live offers shows "no liquidity".
-5. **Buy and sell.** Trade a stock against USDC by making an offer at a chosen price, or by taking an offer already in the book.
+4. **See prices.** See the USDC price of each asset (tokenised stocks, test T-bills), taken only from the live ZSwap offer book. A pair with no live offers shows "no liquidity".
+5. **Buy and sell.** Trade an asset against USDC by making an offer at a chosen price, or by taking an offer already in the book.
 6. **Keep data in the browser.** Everything the dApp stores about a customer stays in the browser. A Local data tab shows it and offers Export, Import and Clear all.
 
 ## Architecture
@@ -64,7 +64,9 @@ scripts/docker-check.sh down         # remove the container and volumes
 verifies the relay's proving keys, the proof server, the relay and the web site.
 [`deploy/RUNBOOK.md`](deploy/RUNBOOK.md) is the operator's guide (sizing, the sponsor wallet,
 secrets, health, limits, upgrades and incidents), and [`deploy/.env.example`](deploy/.env.example)
-documents every setting.
+documents every setting. One build and one relay can serve several domains, each with its own
+asset set (`config.json` `assets` or `WEB_ASSETS`; [`web/README.md`](web/README.md) and RUNBOOK
+section 16). Every domain must be served over https.
 
 ## The local end-to-end
 

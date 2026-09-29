@@ -21,6 +21,7 @@ it says otherwise.
 13. [Start, stop, upgrade and re-pin](#13-start-stop-upgrade-and-re-pin)
 14. [Incidents](#14-incidents)
 15. [Reference: pins and addresses](#15-reference-pins-and-addresses)
+16. [Two domains: one build, one relay](#16-two-domains-one-build-one-relay)
 
 ## 1. What runs
 
@@ -136,6 +137,11 @@ If your proxy runs elsewhere, put its address there. If this is wrong, every cus
 rate-limit bucket, and one busy customer slows everyone down.
 
 Open the site. It should show the MN Bank shell, and Markets should show the live stagenet book.
+
+The site must be served over **https**: the page derives and encrypts the account's keys with
+WebCrypto, which browsers only offer on a secure origin (https, or `localhost`). Without
+`WEB_ASSETS`, the site shows the stagenet default set (USDC and stkA/B/C). To serve another asset
+set, for example the T-bills, on a second domain from the same build and relay, see section 16.
 
 ## 4. The sponsor wallet
 
@@ -385,6 +391,10 @@ The full set, for a new kernel:
 | wStkB | `{"color":"e7ca18cb056477a5aca5cce387306d56526c2f226b4a4e34f068e3a3e8179588","name":"wStkB","kind":"shielded","decimals":6}` |
 | wStkC | `{"color":"db8ae472c587a0709094eeaf98b81a0d46752db1a807e77bd209814e808f19d9","name":"wStkC","kind":"shielded","decimals":6}` |
 | wUSDC | `{"color":"e5afe273bcb1252cfbc81ad6ca1caaafe22312c8c29f9b104a2fe3ead980bb2d","name":"wUSDC","kind":"shielded","decimals":6,"asset_id":"usd-coin"}` |
+| TBILL | `{"color":"05b32284398b1a75dac4f92dcb8802a57ce2194dd3cae781f870430c18a8a8e9","name":"TBILL","kind":"shielded","decimals":6}` |
+| TB13W | `{"color":"b3d96e9933fb4548ce8a17a63f4c92bb3894b3571873c3edcc8a08aa7ce2512b","name":"TB13W","kind":"shielded","decimals":6}` |
+| TB26W | `{"color":"7b044b55c0493a67eeb16f25d3757eea07f9abaf55e374739953afd449bc3b62","name":"TB26W","kind":"shielded","decimals":6}` |
+| TB52W | `{"color":"8f4798a5ee48747f37562da76ed8711ad4b4ea1ad7ac16d80eb74b92792b9ec2","name":"TB52W","kind":"shielded","decimals":6}` |
 
 Answers: `200 {"success":true,…}` registered; `409` the name or colour is already registered;
 `404 NOT_ENABLED` the kernel runs with `ENABLE_TOKEN_REGISTRY=false` (the kernel operator must
@@ -527,7 +537,7 @@ These are accepted for this version (plan question Q9), and the UI explains them
   its first deploy pays its DUST again). Whenever you can, restart the relay when every lane in
   `/health` `queue.lanes` shows 0 running and 0 waiting;
 - proofs one at a time, and withdrawals one at a time for the whole bank (section 10);
-- stocks without a bid show "no liquidity" and are left out of the total value;
+- assets without a bid show "no liquidity" and are left out of the total value;
 - change coins created on a relay older than the security-review fix F-B3 (the bank pays for
   recording change in the inbox only against an entitlement it issued with that change) cannot be
   recorded in the inbox after the upgrade. They stay spendable from the customer's browser, and
@@ -591,6 +601,13 @@ the Signet module, the kept keys), it compiles again first: stop the relay befor
 **Upgrading from `f8710eb` or earlier** (before the relay-memory fix, plan P5.1b): the commands
 above. Only the relay image changes: no setting, no key and no page. A proof then adds about 0.15 GB
 to the relay instead of 3.5 to 5 GB.
+
+**Upgrading to the 8-token registry** (plan 00046: TBILL, TB13W, TB26W and TB52W join stkA/B/C and
+USDC): rebuild and restart **both** the web and the relay. The relay reads the token list once, at
+start, from the code: until it runs the new build it refuses the T-bills' deposits and withdrawals
+("the bank does not bridge this token"). The
+bank domain needs no setting: without `WEB_ASSETS` it still shows USDC and stkA/B/C. Customers'
+data is untouched.
 
 **Upgrading a deployment made from `423f44e`** (before the security-review fixes):
 
@@ -723,9 +740,75 @@ the attestation.
 | Vault's EVM account (Sepolia) | `0x648216975e722494bFF92E88FFc68C8F8d438FaA` |
 | Signet singleton | `1df4ce25fc9f9c03dc6f4d0eb12ddf3d0db094995d4c70aca1142eebb3b77a5d` |
 | MPC output cache | `https://storage.googleapis.com/midnight-cache-storage-testnet/v1/stagenet` |
-| Tokens (Sepolia → Midnight, 6 decimals each) | stkA `0x2Ab7BE0769e3BBD5c7d047B422CB383fCC06FB52` → wStkA `5eb2a3ce…6a02`; stkB `0xF2bEFf36543219C8feC2AB2f42070AA65D3C844B` → wStkB `e7ca18cb…9588`; stkC `0x70c5c1978e5d428fa5C82111980e1aF0A64a270D` → wStkC `db8ae472…19d9`; USDC (Circle) `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238` → wUSDC `e5afe273…bb2d` |
+| Tokens (Sepolia → Midnight, 6 decimals each; acedward/passport @ `6c7505a`) | stkA `0x2Ab7BE0769e3BBD5c7d047B422CB383fCC06FB52` → wStkA `5eb2a3ce…6a02`; stkB `0xF2bEFf36543219C8feC2AB2f42070AA65D3C844B` → wStkB `e7ca18cb…9588`; stkC `0x70c5c1978e5d428fa5C82111980e1aF0A64a270D` → wStkC `db8ae472…19d9`; USDC (Circle) `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238` → wUSDC `e5afe273…bb2d`; TBILL `0x1531b11722CF9b600816ED0eAcBc49594DbB991f` → TBILL `05b32284…a8e9`; TB13W `0x5cF366decA552c30eBB2504d0b9Ee104A99f1c72` → TB13W `b3d96e99…512b`; TB26W `0x26dB7221903e62310409e454442adBb46E0B6E33` → TB26W `7b044b55…3b62`; TB52W `0x02A0D1BaF66351715A84aC4763b82f1155BdD5b0` → TB52W `8f4798a5…9ec2` |
+| Default asset set (no `WEB_ASSETS`) | stagenet: USDC, stkA, stkB, stkC (`NETWORK_DEFAULT_ASSETS`, `packages/core/src/network.ts`) |
 | Endpoints | node `https://rpc.stagenet.shielded.tools`; indexer `https://indexer.stagenet.shielded.tools/api/v4/graphql`; kernel `https://stagenet.api-zswap.zkdojo.com`; batcher `https://stagenet.batcher-zswap.zkdojo.com` (target `midnight-balancer`); exchange site `https://stagenet.zswap.zkdojo.com` |
 
 For development and tests, `deploy/compose.dev.yml` (with `compose.stack.yml`, `compose.keys.yml`
 and `compose.secrets.yml`) runs the relay alone against a local ledger-9 stack; it is not the
 deployment bundle.
+
+## 16. Two domains: one build, one relay
+
+One web image and one relay can serve several domains, each with its own asset set. For example:
+
+| Domain | Asset set | `WEB_ASSETS` (or `config.json` `assets`) |
+|---|---|---|
+| The bank domain | USDC, stkA, stkB, stkC: the stagenet default | empty (no `assets`) |
+| `https://stagenet.tbank.zkdojo.com/` | USDC and the T-bills | `USDC,TBILL,TB13W,TB26W,TB52W` |
+
+What changes between the two is only the `config.json` each serves. The web container writes it
+from `WEB_ASSETS` (comma-separated symbols, or `all`), or serves a mounted
+`/etc/mnbank/config.json` as is. For the tbank domain it is:
+
+```json
+{"network":"stagenet","relayUrl":"/relay","assets":["USDC","TBILL","TB13W","TB26W","TB52W"]}
+```
+
+A second web service, on the same image and in front of the same relay, as a Compose override
+next to `compose.yml` (for example `deploy/compose.tbank.yml`):
+
+```yaml
+services:
+  web-tbank:
+    extends:
+      file: compose.yml
+      service: web
+    environment:
+      WEB_ASSETS: USDC,TBILL,TB13W,TB26W,TB52W
+    ports: !override
+      - ${WEB_BIND_ADDRESS:-127.0.0.1}:${WEB_TBANK_HOST_PORT:-18082}:8080
+```
+
+```sh
+docker compose -f deploy/compose.yml -f deploy/compose.tbank.yml up -d
+curl -s http://127.0.0.1:18082/config.json   # the tbank set
+curl -s http://127.0.0.1:18081/config.json   # the bank domain: no "assets"
+```
+
+Then give the second domain its own TLS site in your proxy. With Caddy:
+
+```
+stagenet.tbank.zkdojo.com {
+    reverse_proxy 127.0.0.1:18082
+}
+```
+
+Things to know:
+
+- **https is required on every domain.** The page derives and encrypts the account's keys with
+  WebCrypto, which browsers only offer on a secure origin: over plain `http://` the page cannot
+  open or use an account.
+- **One relay.** It knows all the bank's tokens (the vendored records; it bridges only those) and
+  needs no setting per domain. Both web services pass `/relay/` to it, so each site and the relay share an origin.
+- **Each domain's customers are separate.** Browser storage is per origin: accounts, records and
+  the `?assets=` filter of one domain are not seen on the other. A customer moves an account with
+  Export and Import.
+- **`?assets=` only narrows.** On the tbank domain, `?assets=USDC,TBILL` shows only TBILL/USDC;
+  `?assets=stkA,USDC` shows USDC and names stkA as "not available on this site"; `?assets=all`
+  goes back to the domain's set.
+- **A typo in `WEB_ASSETS`** (a symbol the bank does not have) is ignored, with a warning in the
+  browser console; if no symbol is known, the site shows the network's default set. An ill-formed
+  value (anything but letters, digits, `.`, `_`, `-`) stops the web container with exit code 78.
+- **After an upgrade** that adds tokens, rebuild and restart the relay as well as the web
+  (section 13.2).
