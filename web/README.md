@@ -3,6 +3,20 @@
 A static Vite + React site. Every per-user record lives in the browser's local storage (see
 `src/store/`); the relay keeps none. Build it with `bun run build:web` from the repository root.
 
+## Showing only some assets (`?assets=`)
+
+A link such as `https://<bank>/?assets=USDC,TBILL` keeps that list in the browser's local data
+(`mn-bank/v1/_global/settings/asset-filter`) and removes the parameter from the address bar; from
+then on the site shows only those assets, everywhere tokens appear. A market shows only when both
+of its assets are listed; no asset is special. Symbols match the ERC20 symbol or the Midnight
+name, in any case (`usdc`, `wUSDC`); well-formed symbols the site does not know yet stay in the
+list and are named in the note under the tabs, and a list of only unknown symbols shows everything.
+Sepolia ETH (gas) always shows, as does anything waiting for the customer (a change coin to
+record, a live offer, a transfer in progress). `?assets=all` or `?assets=`, **Show all assets**
+(under the tabs, or in Local data) and CLEAR ALL clear it; Export and Import carry it. It only
+changes what the page shows: it is not a security setting, and the relay never sees it. The code
+is `src/assets/`.
+
 ## The MN Bank design system
 
 `src/design/` holds the bank's look, taken from the owner-approved mockup: an ivory page, a deep

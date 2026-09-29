@@ -5,6 +5,7 @@
 
 import { useMemo, useRef, useState, type ChangeEvent } from 'react';
 
+import { assetFilterText, useAssetFilter } from '../assets/AssetFilterContext.js';
 import {
   Button,
   ButtonRow,
@@ -70,6 +71,7 @@ export async function importFile(
 export function LocalData({ network, relayUrl }: { network: string; relayUrl: string }) {
   const { status, store, revision } = useStore();
   const wallet = useWallet();
+  const assets = useAssetFilter();
   const [revealed, setRevealed] = useState<ReadonlySet<string>>(new Set());
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -320,6 +322,24 @@ export function LocalData({ network, relayUrl }: { network: string; relayUrl: st
           </Button>
         </div>
       </Panel>
+
+      {assets.listed.length > 0 && (
+        <Panel title="Asset filter" className="section-gap" data-testid="asset-filter-panel">
+          <p className="panel-intro">
+            A link set the assets this browser shows:{' '}
+            <span className="mono" data-testid="asset-filter-listed">
+              ?assets={assets.listed.join(',')}
+            </span>
+            . {assetFilterText(assets)}
+          </p>
+          <p className="small muted" data-testid="asset-filter-disclaimer">
+            This only changes what this page shows; it is not a security setting.
+          </p>
+          <Button variant="secondary" data-testid="asset-filter-clear" onClick={assets.showAll}>
+            Show all assets
+          </Button>
+        </Panel>
+      )}
 
       <TypedConfirmDialog
         open={confirming}

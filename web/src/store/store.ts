@@ -3,6 +3,7 @@
 
 import { recordDataProblem } from './record-schemas.js';
 import {
+  CARRIED_GLOBAL_KEYS,
   ExportFileSchema,
   EXPORT_FORMAT,
   EXPORT_FORMAT_VERSION,
@@ -256,11 +257,12 @@ export class LocalStore {
 
   // ── Export / Import / CLEAR ALL (Q11) ──────────────────────────────────────
 
-  /** One wallet's records on one network, as a validated export file. */
+  /** One wallet's records on one network, as a validated export file, with the browser-wide
+   *  records every export carries (`CARRIED_GLOBAL_KEYS`: the asset filter). */
   exportWallet(scope: WalletScope): ExportFile {
     const s = normaliseScope(scope);
-    const records = this.list(s)
-      .filter((v) => v.record !== null)
+    const records = this.list()
+      .filter((v) => v.record !== null && (inWalletScope(v.parsed, s) || CARRIED_GLOBAL_KEYS.has(v.key)))
       .map((v) => ({ key: v.key, value: v.record as StoredRecord }));
     return ExportFileSchema.parse({
       format: EXPORT_FORMAT,
@@ -320,7 +322,7 @@ export class LocalStore {
         record = null;
       }
       const r = StoredRecordSchema.safeParse(record);
-      if (!k || !inWalletScope(k, s) || !r.success || r.data.kind !== k.kind) {
+      if (!k || !(inWalletScope(k, s) || CARRIED_GLOBAL_KEYS.has(key)) || !r.success || r.data.kind !== k.kind) {
         throw new ImportError('The file holds a record that does not belong to this wallet. Nothing was imported.');
       }
       // Security review F-B4: every record must be one this page writes, field by field.

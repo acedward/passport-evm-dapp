@@ -8,6 +8,7 @@ import { useState } from 'react';
 
 import type { FeedState, Market, TokenRegistry } from '@mnbank/core';
 
+import { assetFilterText, useAssetFilter } from '../assets/AssetFilterContext.js';
 import {
   AssetCell,
   Badge,
@@ -208,6 +209,7 @@ function origin(registry: TokenRegistry, colour: string, symbol: string) {
 
 export function Markets() {
   const { state, registry, error } = useMarkets();
+  const assets = useAssetFilter();
   const [selected, setSelected] = useState<string | null>(null);
 
   const head = (
@@ -230,9 +232,13 @@ export function Markets() {
     );
   }
 
-  const rows = marketRows(state, registry);
+  // A market shows only when the asset filter shows both of its assets (plan 00042).
+  const rows = marketRows(state, registry, assets.showsPair);
   const market =
-    state.status === 'ready' ? (state.snapshot.markets.find((m) => m.stock.midnightName === selected) ?? null) : null;
+    state.status === 'ready'
+      ? (state.snapshot.markets.find((m) => m.stock.midnightName === selected && assets.showsPair(m.stock, m.usdc)) ??
+        null)
+      : null;
   const ignored = ignoredText(state);
 
   return (
@@ -262,6 +268,16 @@ export function Markets() {
             { label: 'Status', align: 'right' },
           ]}
         >
+          {rows.length === 0 && assets.filtering && (
+            <tr className="row-empty" data-testid="markets-filtered-empty">
+              <td colSpan={6}>
+                <NoValue>
+                  No market in this view: a market shows only when both of its assets are listed.{' '}
+                  {assetFilterText(assets)}
+                </NoValue>
+              </td>
+            </tr>
+          )}
           {rows.map((r) => {
             const token = registry.byColour(r.colour);
             return (
