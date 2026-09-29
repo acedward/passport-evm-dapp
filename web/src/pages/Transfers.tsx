@@ -752,7 +752,7 @@ export function Transfers({ network }: { network: NetworkProfile }) {
     <PageHead
       eyebrow="Between Ethereum and Midnight"
       title="Transfers"
-      lede="Move stocks and USDC between your Sepolia wallet and your Passport account. Each transfer takes about 20 minutes, and you can close the page meanwhile."
+      lede="Move assets between your Sepolia wallet and your Passport account. Each transfer takes about 20 minutes, and you can close the page meanwhile."
     />
   );
 

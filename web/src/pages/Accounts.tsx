@@ -294,7 +294,7 @@ function SummaryFigures({
         }
         note={
           <>
-            Stocks are valued at the best bid in the live book. Not included: ETH (not priced)
+            Holdings other than USDC are valued at the best bid in the live book. Not included: ETH (not priced)
             {excluded.length > 0 ? `, and ${excluded.join(', ')} (no price)` : ''}.
           </>
         }
@@ -406,8 +406,8 @@ function SepoliaSection({
         ))}
       </StatementTable>
       <p className="table-note">
-        Stocks are valued at the best bid of the live book; a stock with no bid is shown but not valued. ETH is kept for
-        gas and is not priced.
+        Holdings other than USDC are valued at the best bid of the live book; one with no bid is shown but not valued.
+        ETH is kept for gas and is not priced.
       </p>
     </Panel>
   );
@@ -416,7 +416,7 @@ function SepoliaSection({
 function PassportHoldings({ coins, tokens }: { coins: StoredCoin[]; tokens: TokenRegistry | null }) {
   // Stocks are valued at the best live bid of the offer book (plan L-MKT); USDC at face value.
   const { value } = useMarkets();
-  // Listed in the bank's token order (wStkA, wStkB, wStkC, wUSDC); unknown colours last.
+  // Listed in the bank's token order (the registry's); unknown colours last.
   const order = (colour: string) => {
     const i = tokens?.tokens.findIndex((t) => t.midnightColour === colour) ?? -1;
     return i < 0 ? Number.MAX_SAFE_INTEGER : i;
@@ -434,7 +434,7 @@ function PassportHoldings({ coins, tokens }: { coins: StoredCoin[]; tokens: Toke
   if (rows.length === 0) {
     return (
       <EmptyState data-testid="passport-empty" title="No tokens in this account yet">
-        Deposit stocks or USDC from Sepolia on Transfers; they appear here once they land.
+        Deposit assets from Sepolia on Transfers; they appear here once they land.
       </EmptyState>
     );
   }
@@ -807,8 +807,8 @@ export function Accounts({ network, relayUrl }: { network: NetworkProfile; relay
               <div data-testid="account" data-account={account.address}>
                 <PassportHoldings coins={shownCoins} tokens={tokens} />
                 <p className="table-note">
-                  One payment can use only one coin, so the largest single payment can be less than the balance. A stock
-                  with no live bid is shown but not valued.
+                  One payment can use only one coin, so the largest single payment can be less than the balance. An
+                  asset with no live bid is shown but not valued.
                 </p>
                 <p className="account-number">
                   Account number{' '}

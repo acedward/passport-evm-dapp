@@ -103,7 +103,7 @@ describe('the markets table', () => {
   });
 
   it('says how many offers it did not price', () => {
-    expect(ignoredText(ready)).toMatch(/^5 other offers with a USDC leg are not USDC against one stock/);
+    expect(ignoredText(ready)).toMatch(/^5 other offers with a USDC leg are not USDC against one other asset/);
   });
 });
 
