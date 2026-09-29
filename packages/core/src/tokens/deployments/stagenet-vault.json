@@ -33,7 +33,7 @@
       "schnorr:d11f7ae108f40edb920629603e7f5191025f55cf9da3b06b1109e200e5891eb1"
     ],
     "threshold": 1,
-    "counter": "0",
+    "counter": "1",
     "signingKeyFile": "~/.config/aa-00037/vault-maintenance.signing-key.json"
   },
   "toolchain": {
@@ -148,12 +148,68 @@
         "completeDepositTx": "00af812eb322a9f357c49c90a025f727bd0313403091703c694f41f994f4d1cbb8",
         "minted": "50000000"
       }
+    },
+    {
+      "erc20": "TBILL",
+      "erc20Address": "0x1531b11722CF9b600816ED0eAcBc49594DbB991f",
+      "midnightName": "TBILL",
+      "midnightColour": "05b32284398b1a75dac4f92dcb8802a57ce2194dd3cae781f870430c18a8a8e9",
+      "decimals": 6,
+      "confirmedByDeposit": {
+        "requestId": "0c3637e713798c76f162e3f87ac4418673745aa5d0292cc40e9efb9a880c0f00",
+        "startDepositTx": "0076bb3f0d3e4278e9251ed2985947963acb3365bc01a0187d2bce970ad195d753",
+        "sepoliaSweepTx": "0xbf4a9837b1b1970bed47bb6d0ff130a93e1323308f9a7bfde089a1bd6cd2b2e4",
+        "completeDepositTx": "006f9ff88cb3c61d95a30966a72bde559ff28f15908a9dd099c1c65ad288090d68",
+        "minted": "10000000000"
+      }
+    },
+    {
+      "erc20": "TB13W",
+      "erc20Address": "0x5cF366decA552c30eBB2504d0b9Ee104A99f1c72",
+      "midnightName": "TB13W",
+      "midnightColour": "b3d96e9933fb4548ce8a17a63f4c92bb3894b3571873c3edcc8a08aa7ce2512b",
+      "decimals": 6,
+      "confirmedByDeposit": {
+        "requestId": "a46dd08404aa3b501c6f621b5e8c2d8dd58919e749ab97d9cc3cbc8ba596f000",
+        "startDepositTx": "00cdeb4b4595668d7fc0f8a6c8afe42b004e8ea6731f9d0d362f8484c5c558e38f",
+        "sepoliaSweepTx": "0x1b1a2a7b07103a2d7c581498d9f3f918113a4ee526009e2dfc476fc779cd2763",
+        "completeDepositTx": "00b5c39c19204d19864cca320275fa597380e9639ae75d32f61b673e82e5795143",
+        "minted": "10000000000"
+      }
+    },
+    {
+      "erc20": "TB26W",
+      "erc20Address": "0x26dB7221903e62310409e454442adBb46E0B6E33",
+      "midnightName": "TB26W",
+      "midnightColour": "7b044b55c0493a67eeb16f25d3757eea07f9abaf55e374739953afd449bc3b62",
+      "decimals": 6,
+      "confirmedByDeposit": {
+        "requestId": "21cc511b2a55406774425d4bf8ec2ddd5f8c6805f0222c12a3da398cdc0c0d00",
+        "startDepositTx": "00d06e8282d6c53793992564f0f4bc01fb382982d005a90924ecec0dd1ae8530c1",
+        "sepoliaSweepTx": "0x6b10a5b3a396ed2f13a3307c7d8229759a1d7617d296462eb652661449f98d32",
+        "completeDepositTx": "00342bd77431f0978b61c9bb2b7cd7a11ff685767d10d1cda673c7b96e62a56c82",
+        "minted": "10000000000"
+      }
+    },
+    {
+      "erc20": "TB52W",
+      "erc20Address": "0x02A0D1BaF66351715A84aC4763b82f1155BdD5b0",
+      "midnightName": "TB52W",
+      "midnightColour": "8f4798a5ee48747f37562da76ed8711ad4b4ea1ad7ac16d80eb74b92792b9ec2",
+      "decimals": 6,
+      "confirmedByDeposit": {
+        "requestId": "970094261c3a20c3777ae62cae50ccc469a15ae11d6fe2bfd5975c93993efc00",
+        "startDepositTx": "00ab606b96d3dd77e9104342b0270923efde737a33a4971d4627b2d493484fb815",
+        "sepoliaSweepTx": "0x5ec9dae3dc540dc8bcab1128e8a4f6744bb21c3e9f7372a88f5f5fbe62fcd007",
+        "completeDepositTx": "0082bf8ef70cfc0ed8c4eec21478ffa4d557cded54be02c3c5c2cb2d62818dcd1f",
+        "minted": "10000000000"
+      }
     }
   ],
   "depositAddresses": {
     "c6a35196428ac58a956e93e0c3c7c7df254e428a827291e9111fde7037cd34a1": "0x5f89AB8632a7Cf386a32a1634D4F23312c0F3714"
   },
-  "updatedUtc": "2026-09-27T16:07:02.223Z",
+  "updatedUtc": "2026-09-29T15:39:26.676Z",
   "withdrawRuns": [
     {
       "token": "stkA",
@@ -227,6 +283,69 @@
       "sepoliaSweepTx": "0x9ba59fabd459ffc6640aa6518dcd5f6c8f95cb1abec0f2e9fdb1070dbbe644cf",
       "completeDepositTx": "008659838d97dd503cc85cda5ca4fc4b2424520ebf08c0a888b12a3e2699e95561",
       "minted": "10000000000"
+    },
+    {
+      "run": "tbill-p3",
+      "token": "TBILL",
+      "amount": "10000000000",
+      "requestId": "0c3637e713798c76f162e3f87ac4418673745aa5d0292cc40e9efb9a880c0f00",
+      "startDepositTx": "0076bb3f0d3e4278e9251ed2985947963acb3365bc01a0187d2bce970ad195d753",
+      "sepoliaSweepTx": "0xbf4a9837b1b1970bed47bb6d0ff130a93e1323308f9a7bfde089a1bd6cd2b2e4",
+      "completeDepositTx": "006f9ff88cb3c61d95a30966a72bde559ff28f15908a9dd099c1c65ad288090d68",
+      "minted": "10000000000"
+    },
+    {
+      "run": "tb13w-p3",
+      "token": "TB13W",
+      "amount": "10000000000",
+      "requestId": "a46dd08404aa3b501c6f621b5e8c2d8dd58919e749ab97d9cc3cbc8ba596f000",
+      "startDepositTx": "00cdeb4b4595668d7fc0f8a6c8afe42b004e8ea6731f9d0d362f8484c5c558e38f",
+      "sepoliaSweepTx": "0x1b1a2a7b07103a2d7c581498d9f3f918113a4ee526009e2dfc476fc779cd2763",
+      "completeDepositTx": "00b5c39c19204d19864cca320275fa597380e9639ae75d32f61b673e82e5795143",
+      "minted": "10000000000"
+    },
+    {
+      "run": "tb26w-p3",
+      "token": "TB26W",
+      "amount": "10000000000",
+      "requestId": "21cc511b2a55406774425d4bf8ec2ddd5f8c6805f0222c12a3da398cdc0c0d00",
+      "startDepositTx": "00d06e8282d6c53793992564f0f4bc01fb382982d005a90924ecec0dd1ae8530c1",
+      "sepoliaSweepTx": "0x6b10a5b3a396ed2f13a3307c7d8229759a1d7617d296462eb652661449f98d32",
+      "completeDepositTx": "00342bd77431f0978b61c9bb2b7cd7a11ff685767d10d1cda673c7b96e62a56c82",
+      "minted": "10000000000"
+    },
+    {
+      "run": "tb52w-p3",
+      "token": "TB52W",
+      "amount": "10000000000",
+      "requestId": "970094261c3a20c3777ae62cae50ccc469a15ae11d6fe2bfd5975c93993efc00",
+      "startDepositTx": "00ab606b96d3dd77e9104342b0270923efde737a33a4971d4627b2d493484fb815",
+      "sepoliaSweepTx": "0x5ec9dae3dc540dc8bcab1128e8a4f6744bb21c3e9f7372a88f5f5fbe62fcd007",
+      "completeDepositTx": "0082bf8ef70cfc0ed8c4eec21478ffa4d557cded54be02c3c5c2cb2d62818dcd1f",
+      "minted": "10000000000"
+    }
+  ],
+  "verifierKeysSha256": {
+    "abandonDeposit": "b50ff3961af1dc904e5e2559a3a93f9a16abde58ea1a8154cd925562bf67a350",
+    "completeDeposit": "7a61ca4e09a63e4e7f713a3570f47c64e31c90d9a5301d6f454437550a44c90e",
+    "completeWithdraw": "33590f23466f75e046fc293e5f3669dade92797606d698e0ba1670697fc92776",
+    "initialise": "177e7feaef12c2f5acfebf711026bb19f4958e0cf45a6ea6261afa172c5a3d07",
+    "publishTokenMetadata": "d75c5f4e4efb5aabec056336b17478d0d5d01ee52071d4d108f2616d837d2b27",
+    "refundWithdraw": "03fcc5a2ab10c95080e4d704c7cac2a072de389b0d0b3c8a66771e5775c57869",
+    "startDeposit": "92eecf2be3aae82c1771c5a7bd7f4a85e51b3fe11c6377e929b3b6b218094990",
+    "startWithdraw": "23c977cec9866eab96e3998d61af39d3812e299ccbcbd3fd9d4102fcc9b2717c"
+  },
+  "maintenanceUpdates": [
+    {
+      "circuit": "publishTokenMetadata",
+      "verifierKeySha256": "d75c5f4e4efb5aabec056336b17478d0d5d01ee52071d4d108f2616d837d2b27",
+      "tx": "00bafa3830e562eda55f56a6573ac6f5f57e5fd87f80dc29f024a4be2730d88ee2",
+      "txHash": "0ade6e0a9b80f619dd22aa211873e542e827cb07b290811458e11a45351168e5",
+      "blockHeight": 654990,
+      "status": "SucceedEntirely",
+      "counterBefore": "0",
+      "counterAfter": "1",
+      "project": "AA 00038 (MIP-0018)"
     }
   ]
 }

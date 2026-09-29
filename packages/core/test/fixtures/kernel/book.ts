@@ -12,6 +12,11 @@ export const COLOUR = {
   wStkB: 'e7ca18cb056477a5aca5cce387306d56526c2f226b4a4e34f068e3a3e8179588',
   wStkC: 'db8ae472c587a0709094eeaf98b81a0d46752db1a807e77bd209814e808f19d9',
   wUSDC: 'e5afe273bcb1252cfbc81ad6ca1caaafe22312c8c29f9b104a2fe3ead980bb2d',
+  // PR #4 @ 6c7505a (AA 00043 / 00045): listed under their own symbols, no "w".
+  TBILL: '05b32284398b1a75dac4f92dcb8802a57ce2194dd3cae781f870430c18a8a8e9',
+  TB13W: 'b3d96e9933fb4548ce8a17a63f4c92bb3894b3571873c3edcc8a08aa7ce2512b',
+  TB26W: '7b044b55c0493a67eeb16f25d3757eea07f9abaf55e374739953afd449bc3b62',
+  TB52W: '8f4798a5ee48747f37562da76ed8711ad4b4ea1ad7ac16d80eb74b92792b9ec2',
   // Registered on the staging kernel, unknown to the bank (./staging-2026-09-27/known-tokens.json).
   TWUSDC: 'e934b965a454ed6857080e9956ea83fb5542e0a860e96ce91daf35f5d7b02c9f',
   NIGHT: '0000000000000000000000000000000000000000000000000000000000000000',
@@ -123,10 +128,24 @@ export const PAIRS = [
   },
 ];
 
+/** The kernel's answer for a pair with no offers and no fills (./staging-2026-09-27/chart-stats-wstka-wusdc.json,
+ *  captured while the staging book was empty). */
+const emptyStats = (base: string) => ({
+  base,
+  quote: COLOUR.wUSDC,
+  last: 0,
+  change24: 0,
+  high: 0,
+  low: 0,
+  volume_base: 0,
+  volume_quote: 0,
+});
+
 /** `GET /v1/chart/stats?base=<stock>&quote=<wUSDC>` per stock (JSON numbers, as trade-data.ts
  *  returns them). wStkC never filled, so the kernel reports the open-book MID (here the best ask
- *  0.0104, the only side) as `last` with zero volume: that is NOT a trade. */
-export const STATS: Record<'wStkA' | 'wStkB' | 'wStkC', object> = {
+ *  0.0104, the only side) as `last` with zero volume: that is NOT a trade. The T-bills have no
+ *  offers in this book and no fills. */
+export const STATS: Record<'wStkA' | 'wStkB' | 'wStkC' | 'TBILL' | 'TB13W' | 'TB26W' | 'TB52W', object> = {
   wStkA: {
     base: COLOUR.wStkA,
     quote: COLOUR.wUSDC,
@@ -157,6 +176,10 @@ export const STATS: Record<'wStkA' | 'wStkB' | 'wStkC', object> = {
     volume_base: 0,
     volume_quote: 0,
   },
+  TBILL: emptyStats(COLOUR.TBILL),
+  TB13W: emptyStats(COLOUR.TB13W),
+  TB26W: emptyStats(COLOUR.TB26W),
+  TB52W: emptyStats(COLOUR.TB52W),
 };
 
 /** The kernel's filter semantics for `GET /v1/offers?token=&direction=` (getOpenOffersPage):

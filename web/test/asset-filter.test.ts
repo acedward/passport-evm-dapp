@@ -92,8 +92,16 @@ describe('the rules (the plan P1 testing table)', () => {
   it('no parameter, nothing stored: everything is visible and nothing is written', () => {
     const { view } = load('/', store);
     expect(view.filtering).toBe(false);
-    expect(shown(view)).toEqual(['stkA', 'stkB', 'stkC', 'USDC']);
-    expect(markets(view)).toEqual(['stkA/USDC', 'stkB/USDC', 'stkC/USDC']);
+    expect(shown(view)).toEqual(['stkA', 'stkB', 'stkC', 'USDC', 'TBILL', 'TB13W', 'TB26W', 'TB52W']);
+    expect(markets(view)).toEqual([
+      'stkA/USDC',
+      'stkB/USDC',
+      'stkC/USDC',
+      'TBILL/USDC',
+      'TB13W/USDC',
+      'TB26W/USDC',
+      'TB52W/USDC',
+    ]);
     expect(bankKeys()).toEqual({});
   });
 
@@ -143,20 +151,20 @@ describe('the rules (the plan P1 testing table)', () => {
     expect(src).not.toMatch(/\brole\b|\.usdc\(|stocks\(|'usdc'|'stock'/);
   });
 
-  it('?assets=USDC,TBILL while TBILL is unknown: USDC only, and the note names TBILL', () => {
-    const { view } = load('/?assets=USDC,TBILL', store);
+  it('?assets=USDC,EURC while EURC is unknown: USDC only, and the note names EURC', () => {
+    const { view } = load('/?assets=USDC,EURC', store);
     expect(shown(view)).toEqual(['USDC']);
     expect(view.known).toEqual(['USDC']);
-    expect(view.unknown).toEqual(['TBILL']);
-    expect(readAssetFilter(store)).toEqual(['USDC', 'TBILL']); // kept, for when TBILL arrives
+    expect(view.unknown).toEqual(['EURC']);
+    expect(readAssetFilter(store)).toEqual(['USDC', 'EURC']); // kept, for when EURC arrives
   });
 
-  it('?assets=TBILL (nothing known): everything stays visible, with the note', () => {
-    const { view } = load('/?assets=TBILL', store);
+  it('?assets=EURC (nothing known): everything stays visible, with the note', () => {
+    const { view } = load('/?assets=EURC', store);
     expect(view.filtering).toBe(false);
-    expect(view.unknown).toEqual(['TBILL']);
-    expect(shown(view)).toEqual(['stkA', 'stkB', 'stkC', 'USDC']);
-    expect(markets(view)).toHaveLength(3);
+    expect(view.unknown).toEqual(['EURC']);
+    expect(shown(view)).toEqual(['stkA', 'stkB', 'stkC', 'USDC', 'TBILL', 'TB13W', 'TB26W', 'TB52W']);
+    expect(markets(view)).toHaveLength(7);
   });
 
   it('Sepolia ETH is always visible', () => {
@@ -181,7 +189,7 @@ describe('the rules (the plan P1 testing table)', () => {
       const { view } = load(url, store);
       expect(view.filtering).toBe(false);
       expect(bankKeys()[ASSET_FILTER_KEY]).toBeUndefined();
-      expect(shown(view)).toHaveLength(4);
+      expect(shown(view)).toHaveLength(8);
     }
   });
 
@@ -259,7 +267,15 @@ describe('the markets view with a filter', () => {
       seen.push(`${a.symbol}/${b.symbol}`);
       return true;
     });
-    expect(seen).toEqual(['stkA/USDC', 'stkB/USDC', 'stkC/USDC']);
+    expect(seen).toEqual([
+      'stkA/USDC',
+      'stkB/USDC',
+      'stkC/USDC',
+      'TBILL/USDC',
+      'TB13W/USDC',
+      'TB26W/USDC',
+      'TB52W/USDC',
+    ]);
     expect(token('USDC').midnightName).toBe('wUSDC');
   });
 });

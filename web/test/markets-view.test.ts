@@ -65,6 +65,17 @@ describe('the markets table', () => {
         asks: '2',
         status: 'asks-only',
       },
+      // The T-bills (PR #4 @ 6c7505a): no offers in this book, no fills.
+      ...['TBILL', 'TB13W', 'TB26W', 'TB52W'].map((stock) => ({
+        stock,
+        bestBid: 'no bids',
+        bestAsk: 'no asks',
+        lastTrade: 'no trades yet',
+        lastTradeAt: null,
+        bids: '0',
+        asks: '0',
+        status: 'no-liquidity',
+      })),
     ]);
     expect(STATUS_TEXT['no-liquidity']).toBe('No liquidity');
   });
@@ -74,7 +85,7 @@ describe('the markets table', () => {
       { status: 'unavailable', reason: 'the exchange did not answer', since: 0, lastUpdatedAt: 0, stream: 'polling' },
       registry,
     );
-    expect(rows.map((r) => r.status)).toEqual(['unavailable', 'unavailable', 'unavailable']);
+    expect(rows.map((r) => r.status)).toEqual(Array.from({ length: 7 }, () => 'unavailable'));
     expect(rows.every((r) => r.bestBid === '—' && r.bestAsk === '—' && r.lastTrade === '—')).toBe(true);
     expect(STATUS_TEXT.unavailable).toBe('Exchange unavailable');
   });
@@ -84,6 +95,10 @@ describe('the markets table', () => {
       ['wStkA', 'loading'],
       ['wStkB', 'loading'],
       ['wStkC', 'loading'],
+      ['TBILL', 'loading'],
+      ['TB13W', 'loading'],
+      ['TB26W', 'loading'],
+      ['TB52W', 'loading'],
     ]);
   });
 
