@@ -8,6 +8,7 @@ import {
   type LastTrade,
   type Market,
   type Ratio,
+  type TokenEntry,
   type TokenRegistry,
   formatPrice,
   formatUnits,
@@ -77,22 +78,32 @@ export function marketRow(m: Market): MarketRowView {
   };
 }
 
-/** One row per stock in the registry, whatever the feed's state. */
-export function marketRows(state: FeedState, registry: TokenRegistry): MarketRowView[] {
-  if (state.status === 'ready') return state.snapshot.markets.map(marketRow);
+/** One row per market in the registry (a stock against USDC), whatever the feed's state. `keep`
+ *  decides from a market's two assets whether the page shows it (the asset filter's `showsPair`,
+ *  which treats both the same; plan 00042). */
+export function marketRows(
+  state: FeedState,
+  registry: TokenRegistry,
+  keep: (a: TokenEntry, b: TokenEntry) => boolean = () => true,
+): MarketRowView[] {
+  if (state.status === 'ready') return state.snapshot.markets.filter((m) => keep(m.stock, m.usdc)).map(marketRow);
   const status: MarketStatus = state.status === 'unavailable' ? 'unavailable' : 'loading';
-  return registry.stocks().map((s) => ({
-    stock: s.midnightName,
-    symbol: s.symbol,
-    colour: s.midnightColour,
-    bestBid: '—',
-    bestAsk: '—',
-    lastTrade: '—',
-    lastTradeAt: null,
-    bids: '—',
-    asks: '—',
-    status,
-  }));
+  const usdc = registry.usdc();
+  return registry
+    .stocks()
+    .filter((s) => keep(s, usdc))
+    .map((s) => ({
+      stock: s.midnightName,
+      symbol: s.symbol,
+      colour: s.midnightColour,
+      bestBid: '—',
+      bestAsk: '—',
+      lastTrade: '—',
+      lastTradeAt: null,
+      bids: '—',
+      asks: '—',
+      status,
+    }));
 }
 
 export interface BookLineView {

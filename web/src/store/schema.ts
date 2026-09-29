@@ -33,6 +33,13 @@ export type RecordKind = (typeof RECORD_KINDS)[number];
 /** Kinds whose value is a secret: masked until the customer reveals it. */
 export const SENSITIVE_KINDS: ReadonlySet<RecordKind> = new Set(['secret']);
 
+/** The asset filter (plan 00042, ../assets/filter.ts): the assets this browser's pages show,
+ *  `{"assets": ["USDC", …]}`; absent means every asset. A browser-wide `settings` record. */
+export const ASSET_FILTER_ID = 'asset-filter';
+export const ASSET_FILTER_KEY = `${V1}_global/settings/${ASSET_FILTER_ID}`;
+/** Browser-wide records that travel with a wallet's Export, and that Import accepts. */
+export const CARRIED_GLOBAL_KEYS: ReadonlySet<string> = new Set([ASSET_FILTER_KEY]);
+
 export interface WalletScope {
   network: string;
   /** 0x-prefixed, lowercase. */

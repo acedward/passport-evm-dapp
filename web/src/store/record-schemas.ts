@@ -12,7 +12,8 @@ import { z } from 'zod';
 
 import { APPEND_ENTITLEMENT_PATTERN, encPublicKeyOf } from '@mnbank/core';
 
-import type { ParsedKey, RecordKind } from './schema.js';
+import { AssetFilterDataSchema } from '../assets/filter.js';
+import { ASSET_FILTER_ID, type ParsedKey, type RecordKind } from './schema.js';
 
 const hex32 = z.string().regex(/^[0-9a-f]{64}$/);
 const evm = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
@@ -195,7 +196,9 @@ export const RECORD_DATA_SCHEMAS: Record<RecordKind, z.ZodType> = {
  * for its kind, and that it agrees with the key it is filed under.
  */
 export function recordDataProblem(key: ParsedKey, data: unknown): string | null {
-  const r = RECORD_DATA_SCHEMAS[key.kind].safeParse(data);
+  // The asset filter (plan 00042) is the one browser-wide settings record Import accepts.
+  const isAssetFilter = key.kind === 'settings' && key.scope.global && key.id === ASSET_FILTER_ID;
+  const r = (isAssetFilter ? AssetFilterDataSchema : RECORD_DATA_SCHEMAS[key.kind]).safeParse(data);
   if (!r.success) return `a ${key.kind} record is not in the shape this page writes`;
   const scopeAccount = key.scope.global ? null : key.scope.account;
   const needsAccount = ['account', 'coins', 'roster', 'bridge', 'offer'].includes(key.kind);
