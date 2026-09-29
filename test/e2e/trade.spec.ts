@@ -387,7 +387,9 @@ test.describe('Trade (mocked relay and exchange)', () => {
     await wrap.hover();
     await expect(tip).toBeVisible();
     await expect(tip).toHaveText(NOT_ENOUGH);
-    await page.getByTestId('take-section').screenshot({ path: test.info().outputPath('not-enough-hover.png') });
+    // The viewport as it is (an element screenshot could scroll the line away from the pointer).
+    await page.screenshot({ path: test.info().outputPath('not-enough-hover.png') });
+    await expect(tip).toBeVisible();
     await page.mouse.move(0, 0);
     await expect(tip).toBeHidden();
 
