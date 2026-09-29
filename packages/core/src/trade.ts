@@ -122,13 +122,50 @@ export function takeLegs(
   };
 }
 
+/**
+ * Why ONE coin cannot pay (Q9: no coin merge), as facts the page words (AA 00044):
+ *   - `total`: the account's spendable coins of the token add up to less than the amount (none at
+ *     all included);
+ *   - `one-coin`: they add up to enough, but no single coin covers the amount.
+ */
+export type ShortfallKind = 'total' | 'one-coin';
+
+export interface NotEnoughFacts {
+  kind: ShortfallKind;
+  /** The token the account would pay: its Midnight name, as the book shows it (e.g. wStkA). */
+  token: string;
+  decimals: number;
+  /** The sum of the unspent, positioned coins of the token, base units. */
+  total: bigint;
+  /** The largest single payment: the biggest of those coins, base units (0 when there are none). */
+  largest: bigint;
+  /** The amount the payment needs, base units. */
+  needed: bigint;
+}
+
 export type Fundability =
-  { ok: true; coin: StoredCoin & { mtIndex: string } } | { ok: false; reason: string; largest: bigint; needed: bigint };
+  { ok: true; coin: StoredCoin & { mtIndex: string } } | ({ ok: false; reason: string } & NotEnoughFacts);
+
+/**
+ * The sentence for an amount ONE coin cannot pay (AA 00044), amounts as the book shows them
+ * (2 decimals at least, grouped):
+ *   - `Not enough wStkA. You hold 100.00 wStkA.` (the total is below the amount);
+ *   - `Not enough wStkA. You hold 0.00 wStkA.` (no spendable coin of it);
+ *   - `Not enough wUSDC in one coin. You hold 17.00 wUSDC; one payment can use at most 11.00.`
+ *     (the total is enough, but coins are never merged, so no single payment covers it).
+ */
+export function notEnoughText(f: Pick<NotEnoughFacts, 'kind' | 'token' | 'decimals' | 'total' | 'largest'>): string {
+  const fmt = (v: bigint) => formatUnits(v, f.decimals, { minFractionDigits: 2, grouping: true });
+  return f.kind === 'one-coin'
+    ? `Not enough ${f.token} in one coin. You hold ${fmt(f.total)} ${f.token}; one payment can use at most ${fmt(f.largest)}.`
+    : `Not enough ${f.token}. You hold ${fmt(f.total)} ${f.token}.`;
+}
 
 /**
  * Can ONE coin pay `give` (Q9: no coin merge, offers are all or nothing)? The coin used is the
- * smallest unspent, positioned coin that covers it (L-ACC.5). When none does, the reason names the
- * largest single payment, as the book shows it (spec US8 acceptance 1).
+ * smallest unspent, positioned coin that covers it (L-ACC.5). When none does, the result carries
+ * the facts (the token, the total held, the largest single coin, the amount needed) and `reason`,
+ * the sentence `notEnoughText` builds from them (spec US8 acceptance 1; AA 00044).
  */
 export function fundWithOneCoin(
   coins: readonly StoredCoin[],
@@ -142,12 +179,16 @@ export function fundWithOneCoin(
     .sort((a, b) => (BigInt(a.value) < BigInt(b.value) ? -1 : BigInt(a.value) > BigInt(b.value) ? 1 : 0));
   if (covering[0]) return { ok: true, coin: covering[0] as StoredCoin & { mtIndex: string } };
   const largest = usable.reduce((m, c) => (BigInt(c.value) > m ? BigInt(c.value) : m), 0n);
-  const fmt = (v: bigint) => formatUnits(v, token.decimals, { minFractionDigits: 2, grouping: true });
-  const reason =
-    largest === 0n
-      ? `You hold no spendable ${token.midnightName}.`
-      : `Needs ${fmt(give.amount)} ${token.midnightName} from one coin; your largest single payment is ${fmt(largest)}.`;
-  return { ok: false, reason, largest, needed: give.amount };
+  const total = usable.reduce((s, c) => s + BigInt(c.value), 0n);
+  const facts: NotEnoughFacts = {
+    kind: total > 0n && total >= give.amount ? 'one-coin' : 'total',
+    token: token.midnightName,
+    decimals: token.decimals,
+    total,
+    largest,
+    needed: give.amount,
+  };
+  return { ok: false, reason: notEnoughText(facts), ...facts };
 }
 
 // ── Offers the account made, and the one-live-offer rule (Q9, L-TRD.1, L-TRD.3) ──────────

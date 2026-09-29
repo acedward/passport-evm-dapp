@@ -4,8 +4,9 @@
 // before it. The account's offers (My offers) are reconciled from the chain and the exchange.
 //
 // The seam limits are enforced and explained here (Q9, FR-019): one live offer at a time, each
-// payment from one coin (an offer bigger than the largest coin is not takeable, with the reason),
-// and a warning before a take cancels a live offer (L-TRD.3).
+// payment from one coin (an offer the account cannot pay keeps a greyed Buy or Sell that says why
+// on hover, focus and tap: "Not enough wStkA. You hold 100.00 wStkA.", AA 00044), and a warning
+// before a take cancels a live offer (L-TRD.3).
 //
 // Styled with the MN Bank design system (plan P4-A, following web/README.md "Adopting the design
 // system"): the order form and the book side by side as in the approved mockup, statement tables
@@ -34,7 +35,6 @@ import {
 } from '@mnbank/core';
 
 import {
-  Badge,
   Button,
   ButtonRow,
   Cell,
@@ -51,6 +51,7 @@ import {
   StatementTable,
   StatusPill,
   Sub,
+  Tooltip,
   UnitInput,
   YoursBadge,
   tokenDisplayName,
@@ -471,15 +472,13 @@ export function Trade({ network, relayUrl }: { network: NetworkProfile; relayUrl
             entries.map((e) => {
               const t = takeability(e);
               const own = trades.some((x) => x.role === 'make' && x.offerId === e.offerId);
-              const reason = !own && !t.funding.ok ? t.funding.reason : null;
+              const action = kind === 'asks' ? 'Buy' : 'Sell';
               return (
-                // One row group per offer: the line, and under it why it cannot be taken.
+                // One row group per offer.
                 <tbody key={e.offerId} data-testid="trade-line" data-offer={e.offerId}>
                   <tr
                     aria-selected={picked === e.offerId}
-                    className={[picked === e.offerId ? 'row-selected' : '', reason ? 'has-reason' : '']
-                      .filter(Boolean)
-                      .join(' ')}
+                    className={picked === e.offerId ? 'row-selected' : undefined}
                   >
                     <td className="num">
                       <span className={kind === 'asks' ? 'price-ask' : 'price-bid'}>
@@ -499,25 +498,24 @@ export function Trade({ network, relayUrl }: { network: NetworkProfile; relayUrl
                           disabled={cannotTake}
                           onClick={() => startTake(e)}
                         >
-                          {kind === 'asks' ? 'Buy' : 'Sell'}
+                          {action}
                         </Button>
                       ) : (
-                        <Button size="small" variant="secondary" disabled aria-describedby={`nt-${e.offerId}`}>
-                          {kind === 'asks' ? 'Buy' : 'Sell'}
-                        </Button>
+                        // One coin cannot pay it (Q9): greyed out, and it says why (AA 00044).
+                        <Tooltip id={`nt-${e.offerId}`} text={t.funding.reason} data-testid="not-enough">
+                          <Button
+                            size="small"
+                            variant="secondary"
+                            disabled
+                            aria-describedby={`nt-${e.offerId}`}
+                            data-testid="take-line-not-enough"
+                          >
+                            {action}
+                          </Button>
+                        </Tooltip>
                       )}
                     </td>
                   </tr>
-                  {reason && (
-                    <tr className="reason">
-                      <td colSpan={4}>
-                        <span className="not-takeable" id={`nt-${e.offerId}`} data-testid="not-takeable">
-                          <Badge tone="grey">Not takeable</Badge>
-                          <span className="sr-only">:</span> {reason}
-                        </span>
-                      </td>
-                    </tr>
-                  )}
                 </tbody>
               );
             })

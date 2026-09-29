@@ -10,6 +10,7 @@ import {
   TradeError,
   fundWithOneCoin,
   guardSignedAction,
+  notEnoughText,
   offerStillLive,
   orderLegs,
   parsePrice,
@@ -109,13 +110,110 @@ describe('one coin per payment (Q9)', () => {
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.largest).toBe(8n * U);
-      expect(r.reason).toBe('Needs 10.50 wUSDC from one coin; your largest single payment is 8.00.');
+      // 8 + 6 is enough in all, but no single coin covers 10.50 (the unpositioned 40 is not spendable).
+      expect(r.reason).toBe('Not enough wUSDC in one coin. You hold 14.00 wUSDC; one payment can use at most 8.00.');
     }
   });
 
   it('says so when the account holds none of the token', () => {
     const r = fundWithOneCoin([], give, USDC);
-    expect(!r.ok && r.reason).toBe('You hold no spendable wUSDC.');
+    expect(!r.ok && r.reason).toBe('Not enough wUSDC. You hold 0.00 wUSDC.');
+  });
+});
+
+describe('the "Not enough" wording and its facts (AA 00044)', () => {
+  const stockCoin = (value: bigint, extra: Partial<StoredCoin> = {}) =>
+    coin(value, { color: STOCK.midnightColour, ...extra });
+
+  it('the total is below the amount: "Not enough <T>. You hold <N> <T>."', () => {
+    // 100 wStkA in one coin; the bid needs 250 (spec US1's independent test).
+    const r = fundWithOneCoin(
+      [stockCoin(100n * U), coin(500n * U)],
+      { colour: STOCK.midnightColour, amount: 250n * U },
+      STOCK,
+    );
+    expect(r).toEqual({
+      ok: false,
+      kind: 'total',
+      token: 'wStkA',
+      decimals: 6,
+      total: 100n * U,
+      largest: 100n * U,
+      needed: 250n * U,
+      reason: 'Not enough wStkA. You hold 100.00 wStkA.',
+    });
+  });
+
+  it('no spendable coin: "Not enough <T>. You hold 0.00 <T>." (spent, unpositioned and other tokens do not count)', () => {
+    const coins = [stockCoin(50n * U, { spent: true }), stockCoin(70n * U, { mtIndex: null }), coin(900n * U)];
+    const r = fundWithOneCoin(coins, { colour: STOCK.midnightColour, amount: 10n * U }, STOCK);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r).toMatchObject({ kind: 'total', token: 'wStkA', total: 0n, largest: 0n, needed: 10n * U });
+      expect(r.reason).toBe('Not enough wStkA. You hold 0.00 wStkA.');
+    }
+  });
+
+  it('enough in all but no single coin covers it: "Not enough <T> in one coin. You hold <N> <T>; one payment can use at most <M>."', () => {
+    // 11 + 6 = 17 wUSDC; the ask needs 14.40, which only a merge could pay (Q9: no merge).
+    const r = fundWithOneCoin(
+      [coin(11n * U), coin(6n * U)],
+      { colour: USDC.midnightColour, amount: 14_400_000n },
+      USDC,
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r).toMatchObject({ kind: 'one-coin', token: 'wUSDC', total: 17n * U, largest: 11n * U });
+      expect(r.reason).toBe('Not enough wUSDC in one coin. You hold 17.00 wUSDC; one payment can use at most 11.00.');
+    }
+  });
+
+  it('a total exactly equal to the amount across two coins is the one-coin case', () => {
+    const r = fundWithOneCoin([coin(5n * U), coin(5n * U)], { colour: USDC.midnightColour, amount: 10n * U }, USDC);
+    expect(!r.ok && r.kind).toBe('one-coin');
+  });
+
+  it('amounts are formatted as the book formats them: at least 2 decimals, grouped', () => {
+    const r = fundWithOneCoin(
+      [stockCoin(1_234_567_890_000n), stockCoin(1_500_000n)],
+      { colour: STOCK.midnightColour, amount: 9_000_000_000_000n },
+      STOCK,
+    );
+    expect(!r.ok && r.reason).toBe('Not enough wStkA. You hold 1,234,569.39 wStkA.');
+    expect(
+      notEnoughText({ kind: 'one-coin', token: 'wStkC', decimals: 6, total: 2_500_125_000n, largest: 1_000_000_000n }),
+    ).toBe('Not enough wStkC in one coin. You hold 2,500.125 wStkC; one payment can use at most 1,000.00.');
+  });
+
+  it('`reason` is the wording function applied to the facts, for every case', () => {
+    const cases = [
+      fundWithOneCoin([stockCoin(3n * U)], { colour: STOCK.midnightColour, amount: 10n * U }, STOCK),
+      fundWithOneCoin([], { colour: STOCK.midnightColour, amount: 10n * U }, STOCK),
+      fundWithOneCoin([coin(8n * U), coin(6n * U)], { colour: USDC.midnightColour, amount: 12n * U }, USDC),
+    ];
+    expect(cases.map((r) => !r.ok && r.kind)).toEqual(['total', 'total', 'one-coin']);
+    for (const r of cases) if (!r.ok) expect(r.reason).toBe(notEnoughText(r));
+  });
+
+  it('the token is whichever the account pays, never a special one: any name and decimals', () => {
+    const TBILL = { midnightColour: 'c3'.repeat(32), decimals: 2, midnightName: 'TBILL' };
+    const r = fundWithOneCoin(
+      [coin(4_000n, { color: TBILL.midnightColour })],
+      { colour: TBILL.midnightColour, amount: 5_000n },
+      TBILL,
+    );
+    expect(!r.ok && r.reason).toBe('Not enough TBILL. You hold 40.00 TBILL.');
+  });
+
+  it('a takeable offer is unchanged: ok, paid from the smallest covering coin, no facts', () => {
+    const r = fundWithOneCoin(
+      [stockCoin(300n * U), stockCoin(260n * U)],
+      { colour: STOCK.midnightColour, amount: 250n * U },
+      STOCK,
+    );
+    expect(r.ok).toBe(true);
+    expect(r.ok && r.coin.value).toBe('260000000');
+    expect(Object.keys(r).sort()).toEqual(['coin', 'ok']);
   });
 });
 

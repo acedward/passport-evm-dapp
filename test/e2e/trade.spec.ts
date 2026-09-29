@@ -7,8 +7,9 @@
 //     OpenSwapShielded signature, My offers shows it live; a second offer is refused; a withdrawal
 //     warns that it cancels the offer (and nothing is signed when the customer declines);
 //   - take: "Buy at best ask" takes the whole 10 wStkA ask for 10.50 wUSDC with ONE signature;
-//     lines one coin cannot pay are "Not takeable", with the reason; the Markets Take link opens
-//     the Trade page on that offer;
+//     a line the account cannot pay keeps its Buy/Sell greyed out, with no extra row, and says
+//     why on hover, keyboard focus and tap ("Not enough wStkA. You hold 100.00 wStkA.", AA 00044);
+//     the Markets Take link opens the Trade page on that offer;
 //   - reconcile: an outside taker fills the offer; Refresh shows it Filled, with the settling tx.
 //
 // The same flows run LIVE on the staging exchange in L-TRD.0 (test/live/trade/).
@@ -18,7 +19,7 @@ import { expect, test, type Page, type Route } from '@playwright/test';
 import { contractCoinCommitment, contractCoinNullifier } from '../../packages/core/src/coins.js';
 import { bytesToHex, hexToBytes } from '../../packages/core/src/hex.js';
 import { evmDeviceEntry } from '../../packages/core/src/passport/gated.js';
-import { BOOK, COLOUR } from '../../packages/core/test/fixtures/kernel/book.js';
+import { BOOK, COLOUR, leg, offerRow, type WireOffer } from '../../packages/core/test/fixtures/kernel/book.js';
 import { KernelFixture, STREAM_HEADERS, connectedEvent } from '../../packages/core/test/fixtures/kernel/mock-kernel.js';
 import { sealEntryPortable } from '../../vendor/passport/contract/src/wallet/deposit.js';
 import { installTestWallet, type TestWallet } from './test-wallet.js';
@@ -181,11 +182,11 @@ const HELD: Coin[] = [
   { nonce: '03'.repeat(32), color: COLOUR.wUSDC, value: 6n * U },
 ];
 
-async function open(page: Page, hash = '#trade') {
+async function open(page: Page, hash = '#trade', opts: { held?: Coin[]; book?: WireOffer[] } = {}) {
   const { x25519 } = await import('@noble/curves/ed25519.js');
   const sk = x25519.utils.randomSecretKey();
   const pk = x25519.getPublicKey(sk);
-  const fixture = new KernelFixture();
+  const fixture = new KernelFixture(opts.book ? { book: opts.book } : {});
   await page.route(
     (url) => url.hostname !== '127.0.0.1',
     (route) => route.abort('blockedbyclient'),
@@ -193,7 +194,7 @@ async function open(page: Page, hash = '#trade') {
   await page.route('**/config.json', (r) => r.fulfill({ json: { network: 'stagenet', relayUrl: RELAY } }));
   const wallet = await installTestWallet(page, { startChainId: '0xaa36a7' });
   const bank = new MockBank(wallet.address, pk);
-  await bank.add(HELD, 'fund-tx');
+  await bank.add(opts.held ?? HELD, 'fund-tx');
   await page.route(`${RELAY}/**`, (r) => bank.handle(r));
   await page.route(`${KERNEL}/**`, (route) => {
     const url = new URL(route.request().url());
@@ -248,6 +249,20 @@ const ASK_20 = BOOK.find(
 const BID_10 = BOOK.find(
   (o) => o.computed.wants[0]!.token === COLOUR.wStkA && o.computed.wants[0]!.amount === '10000000',
 )!;
+
+// AA 00044: the account holds ONE 100 wStkA coin and 11 + 6 wUSDC; the book gains a bid for 250
+// wStkA (more than it holds), an ask needing 14.40 wUSDC (17 in all, but no single coin covers
+// it), and a wStkC bid (it holds none).
+const HELD_100: Coin[] = [
+  { nonce: '04'.repeat(32), color: COLOUR.wStkA, value: 100n * U },
+  { nonce: '02'.repeat(32), color: COLOUR.wUSDC, value: 11n * U },
+  { nonce: '03'.repeat(32), color: COLOUR.wUSDC, value: 6n * U },
+];
+const BID_250 = offerRow(12, [leg(COLOUR.wUSDC, 235_000_000)], [leg(COLOUR.wStkA, 250_000_000)]); // bid 250 @ 0.94
+const ASK_12 = offerRow(13, [leg(COLOUR.wStkA, 12_000_000)], [leg(COLOUR.wUSDC, 14_400_000)]); // ask 12 @ 1.20
+const BID_C = offerRow(14, [leg(COLOUR.wUSDC, 1_000_000)], [leg(COLOUR.wStkC, 100_000_000)]); // bid 100 wStkC @ 0.01
+const BOOK_00044 = [BID_C, ASK_12, BID_250, ...BOOK];
+const NOT_ENOUGH = 'Not enough wStkA. You hold 100.00 wStkA.';
 
 test.describe('Trade (mocked relay and exchange)', () => {
   test.setTimeout(120_000);
@@ -308,19 +323,21 @@ test.describe('Trade (mocked relay and exchange)', () => {
     expect(bank.submitted).toHaveLength(1);
   });
 
-  test('take: buy the whole best ask with ONE signature; what one coin cannot pay is not takeable, with the reason', async ({
+  test('take: buy the whole best ask with ONE signature; what the account cannot pay is greyed out, and says why', async ({
     page,
   }) => {
     const { wallet, bank } = await open(page);
     await expect(line(page, ASK_10.offerId).getByTestId('take-line')).toBeVisible();
-    // 22 wUSDC for the 20 wStkA ask: the account's coins are 11 and 6.
-    await expect(line(page, ASK_20.offerId).getByTestId('not-takeable')).toHaveText(
-      'Not takeable: Needs 22.00 wUSDC from one coin; your largest single payment is 11.00.',
+    // 22 wUSDC for the 20 wStkA ask: the account's coins are 11 and 6, 17 in all.
+    await expect(line(page, ASK_20.offerId).getByTestId('take-line-not-enough')).toBeDisabled();
+    await expect(line(page, ASK_20.offerId).getByTestId('take-line-not-enough')).toHaveAccessibleDescription(
+      'Not enough wUSDC. You hold 17.00 wUSDC.',
     );
-    // Selling into the 10 wStkA bid needs a 10 wStkA coin; the account has 3.
-    await expect(line(page, BID_10.offerId).getByTestId('not-takeable')).toContainText(
-      'Needs 10.00 wStkA from one coin; your largest single payment is 3.00.',
+    // Selling into the 10 wStkA bid needs 10 wStkA; the account has 3.
+    await expect(line(page, BID_10.offerId).getByTestId('take-line-not-enough')).toHaveAccessibleDescription(
+      'Not enough wStkA. You hold 3.00 wStkA.',
     );
+    await expect(page.getByTestId('not-takeable')).toHaveCount(0);
     await expect(page.getByTestId('sell-best-bid')).toBeDisabled();
 
     await page.getByTestId('buy-best-ask').click();
@@ -345,6 +362,105 @@ test.describe('Trade (mocked relay and exchange)', () => {
     const taken = page.locator('[data-testid=my-trade][data-role=take]');
     await expect(taken).toHaveAttribute('data-state', 'filled');
     await expect(taken.getByTestId('my-trade-tx')).toContainText('aaaaaaaa');
+  });
+
+  test('not enough: the Sell stays in place, greyed out, no extra row; it says why on hover and keyboard focus (AA 00044)', async ({
+    page,
+  }) => {
+    const { wallet, bank } = await open(page, '#trade', { held: HELD_100, book: BOOK_00044 });
+    const row = line(page, BID_250.offerId);
+    const wrap = row.getByTestId('not-enough');
+    const sell = row.getByTestId('take-line-not-enough');
+    const tip = row.getByTestId('tooltip');
+    await expect(sell).toBeDisabled();
+    await expect(sell).toHaveText('Sell');
+    // No "Not takeable" row: the offer is one table row, the button is the only thing in its cell.
+    await expect(page.getByTestId('not-takeable')).toHaveCount(0);
+    await expect(row.locator('tr')).toHaveCount(1);
+    await expect(row.locator('tr', { hasText: 'Not takeable' })).toHaveCount(0);
+    await expect(tip).toBeHidden();
+    // Screen readers: the button is described by the same sentence (visually hidden text).
+    await expect(sell).toHaveAccessibleDescription(NOT_ENOUGH);
+    await expect(page.locator(`#nt-${BID_250.offerId}`)).toHaveClass(/sr-only/);
+
+    // Hover.
+    await wrap.hover();
+    await expect(tip).toBeVisible();
+    await expect(tip).toHaveText(NOT_ENOUGH);
+    // The viewport as it is (an element screenshot could scroll the line away from the pointer).
+    await page.screenshot({ path: test.info().outputPath('not-enough-hover.png') });
+    await expect(tip).toBeVisible();
+    await page.mouse.move(0, 0);
+    await expect(tip).toBeHidden();
+
+    // Keyboard: Tab from the Sell of the line above (the 10 wStkA bid, which it can pay) lands on
+    // the greyed Sell's wrapper, and the text shows; Escape hides it.
+    const above = line(page, BID_10.offerId).getByTestId('take-line');
+    await expect(above).toBeEnabled();
+    await above.focus();
+    await page.keyboard.press('Tab');
+    await expect(wrap).toBeFocused();
+    await expect(tip).toBeVisible();
+    await expect(tip).toHaveText(NOT_ENOUGH);
+    await page.getByTestId('take-section').screenshot({ path: test.info().outputPath('not-enough-focus.png') });
+    await page.keyboard.press('Escape');
+    await expect(tip).toBeHidden();
+    await expect(wrap).toBeFocused();
+
+    // The other two sentences, on the same book.
+    await expect(line(page, ASK_12.offerId).getByTestId('take-line-not-enough')).toHaveAccessibleDescription(
+      'Not enough wUSDC in one coin. You hold 17.00 wUSDC; one payment can use at most 11.00.',
+    );
+    await expect(line(page, ASK_20.offerId).getByTestId('take-line-not-enough')).toHaveAccessibleDescription(
+      'Not enough wUSDC. You hold 17.00 wUSDC.',
+    );
+    // Offers it can pay are unchanged: an enabled Buy/Sell, no tooltip.
+    await expect(line(page, ASK_10.offerId).getByTestId('take-line')).toBeEnabled();
+    await expect(line(page, ASK_10.offerId).getByTestId('not-enough')).toHaveCount(0);
+    await expect(line(page, BID_10.offerId).getByTestId('not-enough')).toHaveCount(0);
+
+    // No spendable coin of the token at all.
+    await page.getByTestId('trade-stock').selectOption('wStkC');
+    await expect(line(page, BID_C.offerId).getByTestId('take-line-not-enough')).toHaveAccessibleDescription(
+      'Not enough wStkC. You hold 0.00 wStkC.',
+    );
+    await line(page, BID_C.offerId).getByTestId('not-enough').hover();
+    await expect(line(page, BID_C.offerId).getByTestId('tooltip')).toHaveText('Not enough wStkC. You hold 0.00 wStkC.');
+
+    expect(signatures(wallet)).toHaveLength(0);
+    expect(bank.submitted).toHaveLength(0);
+  });
+
+  test('not enough: the take confirmation says the same sentence, and cannot be signed (AA 00044)', async ({
+    page,
+  }) => {
+    const { wallet } = await open(page, `#trade?stock=wStkA&offer=${BID_250.offerId}`, {
+      held: HELD_100,
+      book: BOOK_00044,
+    });
+    await page.getByTestId('take-picked').click();
+    const confirm = page.getByTestId('take-confirm');
+    await expect(confirm).toHaveAttribute('data-offer', BID_250.offerId);
+    await expect(confirm.getByTestId('take-not-fundable')).toHaveText(NOT_ENOUGH);
+    await expect(confirm.getByTestId('take-sign')).toBeDisabled();
+    expect(signatures(wallet)).toHaveLength(0);
+  });
+
+  test.describe('on a touch screen', () => {
+    test.use({ hasTouch: true });
+
+    test('not enough: tapping the greyed Sell shows why; tapping elsewhere hides it (AA 00044)', async ({ page }) => {
+      await open(page, '#trade', { held: HELD_100, book: BOOK_00044 });
+      const row = line(page, BID_250.offerId);
+      const tip = row.getByTestId('tooltip');
+      await expect(row.getByTestId('take-line-not-enough')).toBeDisabled();
+      await expect(tip).toBeHidden();
+      await row.getByTestId('not-enough').tap();
+      await expect(tip).toBeVisible();
+      await expect(tip).toHaveText(NOT_ENOUGH);
+      await page.locator('[data-testid=section-trade] .page-title').tap();
+      await expect(tip).toBeHidden();
+    });
   });
 
   test('the Markets Take link opens the Trade page on that offer', async ({ page }) => {

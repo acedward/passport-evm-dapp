@@ -1,7 +1,7 @@
 // The MN Bank design system (plan P1.5): tokens and styles in ./index.css (imported once by
 // main.tsx), components below. How to use them: web/README.md, "Adopting the design system".
 
-export { Badge, NetworkBadge, NoValue, NotTakeable, StatusPill, YoursBadge } from './Badge.js';
+export { Badge, NetworkBadge, NoValue, StatusPill, YoursBadge } from './Badge.js';
 export type { BadgeTone, PillStatus } from './Badge.js';
 export { Button, ButtonLink, ButtonRow, buttonClass } from './Button.js';
 export type { ButtonProps, ButtonSize, ButtonVariant } from './Button.js';
@@ -22,6 +22,8 @@ export { IdentityChip, Masthead, SiteFooter, TabNav } from './Shell.js';
 export type { TabItem } from './Shell.js';
 export { Hash, StageTracker } from './StageTracker.js';
 export { Step, Steps } from './Steps.js';
+export { Tooltip } from './Tooltip.js';
+export type { TooltipProps } from './Tooltip.js';
 export type { StageState, TrackerStage } from './StageTracker.js';
 export { AssetCell, Cell, StatementTable, Sub, SubtotalRow } from './StatementTable.js';
 export type { CellProps, Column, StatementTableProps } from './StatementTable.js';

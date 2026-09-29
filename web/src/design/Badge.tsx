@@ -5,7 +5,6 @@
 //   <StatusPill status="live">Live</StatusPill>      an offer's or transfer's state, with a dot
 //   <NoValue>no liquidity</NoValue>                  a value that is deliberately absent
 //   <YoursBadge />                                   the account's own offer in a book
-//   <NotTakeable reason="needs a single 12.00 wUSDC coin; your largest is 11.00." />
 
 import type { HTMLAttributes, ReactNode } from 'react';
 
@@ -46,14 +45,5 @@ export function YoursBadge({ children = 'Your offer', ...rest }: HTMLAttributes<
     <Badge tone="gold" {...rest}>
       {children}
     </Badge>
-  );
-}
-
-/** An offer the account cannot take, with the reason in words (one coin must cover it, Q9). */
-export function NotTakeable({ reason, ...rest }: HTMLAttributes<HTMLSpanElement> & { reason: ReactNode }) {
-  return (
-    <span className="not-takeable" {...rest}>
-      <Badge tone="grey">Not takeable</Badge> <span className="small muted">{reason}</span>
-    </span>
   );
 }
