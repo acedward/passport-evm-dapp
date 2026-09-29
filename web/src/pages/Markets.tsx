@@ -15,7 +15,6 @@ import {
   Button,
   ButtonLink,
   Cell,
-  EmptyState,
   NoValue,
   Notice,
   PageHead,
@@ -257,84 +256,88 @@ export function Markets() {
         </Notice>
       )}
       <Panel>
-        {rows.length === 0 && assets.filtering ? (
-          <EmptyState data-testid="markets-filtered-empty" title="No market in this view">
-            A market shows only when both of its assets are listed. {assetFilterText(assets)}
-          </EmptyState>
-        ) : (
-          <StatementTable
-            data-testid="markets-table"
-            caption="Stocks against USDC"
-            columns={[
-              { label: 'Stock' },
-              { label: 'Best bid', sub: 'USDC', align: 'right' },
-              { label: 'Best ask', sub: 'USDC', align: 'right' },
-              { label: 'Last trade', sub: 'USDC', align: 'right' },
-              { label: 'Offers', sub: 'bids / asks', align: 'right' },
-              { label: 'Status', align: 'right' },
-            ]}
-          >
-            {rows.map((r) => {
-              const token = registry.byColour(r.colour);
-              return (
-                <tr
-                  key={r.colour}
-                  data-testid="market-row"
-                  data-stock={r.stock}
-                  aria-selected={selected === r.stock}
-                  className={selected === r.stock ? 'row-selected' : undefined}
-                >
-                  <AssetCell
-                    symbol={
-                      <Button
-                        variant="link"
-                        className="sym"
-                        data-testid="open-book"
-                        aria-expanded={selected === r.stock}
-                        disabled={state.status !== 'ready'}
-                        onClick={() => setSelected(selected === r.stock ? null : r.stock)}
-                      >
-                        {r.stock}
-                      </Button>
-                    }
-                    name={token ? tokenDisplayName(token) : undefined}
-                    origin={origin(registry, r.colour, r.symbol)}
-                  />
-                  <Cell label="Best bid" align="right" num>
-                    {isPrice(r.bestBid) ? (
-                      <span className="price-bid" data-testid="best-bid">
-                        {r.bestBid}
-                      </span>
-                    ) : (
-                      <NoValue data-testid="best-bid">{r.bestBid}</NoValue>
-                    )}
-                  </Cell>
-                  <Cell label="Best ask" align="right" num>
-                    {isPrice(r.bestAsk) ? (
-                      <span className="price-ask" data-testid="best-ask">
-                        {r.bestAsk}
-                      </span>
-                    ) : (
-                      <NoValue data-testid="best-ask">{r.bestAsk}</NoValue>
-                    )}
-                  </Cell>
-                  <Cell label="Last trade" align="right" num data-testid="last-trade">
-                    <span className="num-wrap">
-                      {isPrice(r.lastTrade) ? r.lastTrade : <NoValue>{r.lastTrade}</NoValue>}
-                      {r.lastTradeAt && <Sub>{r.lastTradeAt}</Sub>}
+        <StatementTable
+          data-testid="markets-table"
+          caption="Stocks against USDC"
+          columns={[
+            { label: 'Stock' },
+            { label: 'Best bid', sub: 'USDC', align: 'right' },
+            { label: 'Best ask', sub: 'USDC', align: 'right' },
+            { label: 'Last trade', sub: 'USDC', align: 'right' },
+            { label: 'Offers', sub: 'bids / asks', align: 'right' },
+            { label: 'Status', align: 'right' },
+          ]}
+        >
+          {rows.length === 0 && assets.filtering && (
+            <tr className="row-empty" data-testid="markets-filtered-empty">
+              <td colSpan={6}>
+                <NoValue>
+                  No market in this view: a market shows only when both of its assets are listed.{' '}
+                  {assetFilterText(assets)}
+                </NoValue>
+              </td>
+            </tr>
+          )}
+          {rows.map((r) => {
+            const token = registry.byColour(r.colour);
+            return (
+              <tr
+                key={r.colour}
+                data-testid="market-row"
+                data-stock={r.stock}
+                aria-selected={selected === r.stock}
+                className={selected === r.stock ? 'row-selected' : undefined}
+              >
+                <AssetCell
+                  symbol={
+                    <Button
+                      variant="link"
+                      className="sym"
+                      data-testid="open-book"
+                      aria-expanded={selected === r.stock}
+                      disabled={state.status !== 'ready'}
+                      onClick={() => setSelected(selected === r.stock ? null : r.stock)}
+                    >
+                      {r.stock}
+                    </Button>
+                  }
+                  name={token ? tokenDisplayName(token) : undefined}
+                  origin={origin(registry, r.colour, r.symbol)}
+                />
+                <Cell label="Best bid" align="right" num>
+                  {isPrice(r.bestBid) ? (
+                    <span className="price-bid" data-testid="best-bid">
+                      {r.bestBid}
                     </span>
-                  </Cell>
-                  <Cell label="Offers" align="right" num data-testid="offer-counts">
-                    {r.bids} / {r.asks}
-                  </Cell>
-                  <Cell label="Status" align="right" data-testid="market-status" data-status={r.status}>
-                    <Badge tone={STATUS_TONE[r.status]}>{STATUS_TEXT[r.status]}</Badge>
-                  </Cell>
-                </tr>
-              );
-            })}
-          </StatementTable>
-        )}
+                  ) : (
+                    <NoValue data-testid="best-bid">{r.bestBid}</NoValue>
+                  )}
+                </Cell>
+                <Cell label="Best ask" align="right" num>
+                  {isPrice(r.bestAsk) ? (
+                    <span className="price-ask" data-testid="best-ask">
+                      {r.bestAsk}
+                    </span>
+                  ) : (
+                    <NoValue data-testid="best-ask">{r.bestAsk}</NoValue>
+                  )}
+                </Cell>
+                <Cell label="Last trade" align="right" num data-testid="last-trade">
+                  <span className="num-wrap">
+                    {isPrice(r.lastTrade) ? r.lastTrade : <NoValue>{r.lastTrade}</NoValue>}
+                    {r.lastTradeAt && <Sub>{r.lastTradeAt}</Sub>}
+                  </span>
+                </Cell>
+                <Cell label="Offers" align="right" num data-testid="offer-counts">
+                  {r.bids} / {r.asks}
+                </Cell>
+                <Cell label="Status" align="right" data-testid="market-status" data-status={r.status}>
+                  <Badge tone={STATUS_TONE[r.status]}>{STATUS_TEXT[r.status]}</Badge>
+                </Cell>
+              </tr>
+            );
+          })}
+        </StatementTable>
         <p className="table-note">Holdings are valued at the best bid; a stock with no bid is not valued.</p>
         {ignored && (
           <p className="table-note" data-testid="ignored-offers">
