@@ -58,6 +58,7 @@ import {
   type PillStatus,
   type TrackerStage,
 } from '../design/index.js';
+import { assetFilterText, useAssetFilter } from '../assets/AssetFilterContext.js';
 import { useMarkets } from '../market/MarketContext.js';
 import { askText, bidText } from '../market/view.js';
 import { syncAccount, type OperationEnv } from '../passport/operations.js';
@@ -208,9 +209,11 @@ export function Trade({ network, relayUrl }: { network: NetworkProfile; relayUrl
   const bank = useBankStatus();
   const relay = useMemo(() => new RelayClient(relayUrl), [relayUrl]);
   const kernel = useMemo(() => new KernelClient({ baseUrl: network.zswap.kernelUrl }), [network]);
+  const assets = useAssetFilter();
   const params = hashParams();
-  const stocks = registry?.stocks() ?? [];
   const usdc = registry?.usdc() ?? null;
+  // Only the markets whose two assets the asset filter shows (plan 00042).
+  const stocks = (registry?.stocks() ?? []).filter((s) => !!usdc && assets.showsPair(s, usdc));
   const [stockName, setStockName] = useState<string>(params.get('stock') ?? stocks[0]?.midnightName ?? '');
   const [picked, setPicked] = useState<string | null>(params.get('offer'));
   const [side, setSide] = useState<TradeSide>('sell');
@@ -252,6 +255,8 @@ export function Trade({ network, relayUrl }: { network: NetworkProfile; relayUrl
     return () => clearInterval(t);
   }, []);
   const live = liveOffer(trades, now);
+  // The history lists only the markets the filter shows; a live offer (the banner) always shows.
+  const shownTrades = trades.filter((t) => assets.showsColour(t.stock) && assets.showsColour(t.usdc));
 
   const env = useCallback((): OperationEnv | null => {
     if (!store || !scope || !wallet.provider || !wallet.address) return null;
@@ -303,6 +308,16 @@ export function Trade({ network, relayUrl }: { network: NetworkProfile; relayUrl
     />
   );
 
+  if (registry && usdc && stocks.length === 0 && assets.filtering) {
+    return (
+      <section data-testid="section-trade">
+        {head}
+        <EmptyState data-testid="trade-filtered-empty" title="No market in this view">
+          A market shows only when both of its assets are listed. {assetFilterText(assets)}
+        </EmptyState>
+      </section>
+    );
+  }
   if (!registry || !stock || !usdc) {
     return (
       <section data-testid="section-trade">
@@ -777,14 +792,14 @@ export function Trade({ network, relayUrl }: { network: NetworkProfile; relayUrl
             { label: 'Settled by', align: 'right' },
           ]}
         >
-          {trades.length === 0 ? (
+          {shownTrades.length === 0 ? (
             <tr className="row-empty">
               <td colSpan={6}>
                 <NoValue>No trades yet.</NoValue>
               </td>
             </tr>
           ) : (
-            trades.map((t) => (
+            shownTrades.map((t) => (
               <tr key={`${t.role}-${t.offerId}`} data-testid="my-trade" data-role={t.role} data-state={t.status}>
                 <Cell block num>
                   {placed(t.createdAt)}

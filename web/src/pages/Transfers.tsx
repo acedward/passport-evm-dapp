@@ -18,6 +18,7 @@ import {
   type TokenRegistry,
 } from '@mnbank/core';
 
+import { useAssetFilter } from '../assets/AssetFilterContext.js';
 import { useTransfers } from '../bridge/TransfersContext.js';
 import { mpcSlow, outcomeText, stageLinks, stageText } from '../bridge/messages.js';
 import {
@@ -114,7 +115,8 @@ function SepoliaTx({ hash, explorer }: { hash: string; explorer: string }) {
 function DepositPanel({ network, tokens }: { network: NetworkProfile; tokens: TokenRegistry | null }) {
   const { account, env, followActively } = useTransfers();
   const { store, revision } = useStore();
-  const list = bridged(tokens);
+  const assets = useAssetFilter();
+  const list = bridged(tokens).filter(assets.shows);
   const [symbol, setSymbol] = useState('');
   const [amount, setAmount] = useState('');
   const { spendingPaused } = useBankStatus();
@@ -412,10 +414,12 @@ function WithdrawPanel({ network, tokens }: { network: NetworkProfile; tokens: T
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [store, account, wallet.address, revision],
   );
+  const assets = useAssetFilter();
   const withdrawable = held
     .map((h) => ({ h, t: tokens?.byColour(h.color) }))
     .filter(
-      (x): x is { h: (typeof held)[number]; t: TokenEntry } => !!x.t && x.t.sepoliaAddress !== '' && x.t.vault !== '',
+      (x): x is { h: (typeof held)[number]; t: TokenEntry } =>
+        !!x.t && x.t.sepoliaAddress !== '' && x.t.vault !== '' && assets.shows(x.t),
     );
   const chosen = withdrawable.find((x) => x.h.color === colour) ?? withdrawable[0];
 
@@ -729,11 +733,20 @@ export function Transfers({ network }: { network: NetworkProfile }) {
   const wallet = useWallet();
   const { account, hasSecret, env } = useTransfers();
   const { revision } = useStore();
+  const assets = useAssetFilter();
   const transfers = useMemo(() => {
     const e = env();
-    return e && account ? listTransfers(e.store, e.scope, account.address).filter((t) => t.state !== 'funding') : [];
+    return e && account
+      ? listTransfers(e.store, e.scope, account.address).filter(
+          // A finished transfer of an asset the filter hides is left out (plan 00042); one still in
+          // progress always shows, since it may need the customer.
+          (t) =>
+            t.state !== 'funding' &&
+            (assets.showsColour(t.colour) || (t.state !== 'succeeded' && t.state !== 'failed')),
+        )
+      : [];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [env, account, revision]);
+  }, [env, account, revision, assets]);
 
   const head = (
     <PageHead

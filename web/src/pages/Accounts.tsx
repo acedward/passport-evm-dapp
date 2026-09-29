@@ -50,6 +50,7 @@ import {
   type Column,
   type TrackerStage,
 } from '../design/index.js';
+import { useAssetFilter } from '../assets/AssetFilterContext.js';
 import { readSepoliaHoldings, walletRpc, type SepoliaHoldings } from '../evm/balances.js';
 import { useMarkets, useTokenRegistry } from '../market/MarketContext.js';
 import { bidText } from '../market/view.js';
@@ -226,10 +227,16 @@ interface Valued {
 type ValueFn = (colour: string, amountRaw: bigint) => Valuation;
 
 /** Sepolia rows valued with the same hook as the Passport holdings (a stkA is priced at the
- *  best bid for wStkA, the token it bridges to); the subtotal leaves out what has no price. */
-function sepoliaValuation(tokens: TokenRegistry | null, holdings: SepoliaHoldings | null, value: ValueFn) {
+ *  best bid for wStkA, the token it bridges to); the subtotal leaves out what has no price. Only
+ *  the tokens the asset filter shows are listed and counted (plan 00042). */
+function sepoliaValuation(
+  tokens: TokenRegistry | null,
+  holdings: SepoliaHoldings | null,
+  value: ValueFn,
+  shows: (t: TokenEntry) => boolean,
+) {
   const rows: Valued[] = (tokens?.tokens ?? [])
-    .filter((t) => t.sepoliaAddress !== '')
+    .filter((t) => t.sepoliaAddress !== '' && shows(t))
     .map((t) => {
       const balance = holdings?.tokens.find((x) => x.token.symbol === t.symbol)?.balance;
       return {
@@ -268,7 +275,8 @@ function SummaryFigures({
   hasAccount: boolean;
 }) {
   const { value } = useMarkets();
-  const sep = sepoliaValuation(tokens, holdings, value);
+  const assets = useAssetFilter();
+  const sep = sepoliaValuation(tokens, holdings, value, assets.shows);
   const pass = passportValuation(coins, tokens, value);
   const usdcDec = tokens?.usdc()?.decimals ?? 6;
   const excluded = [...sep.excluded, ...(hasAccount ? pass.excluded : [])];
@@ -317,7 +325,8 @@ function SepoliaSection({
   onRefresh(): void;
 }) {
   const { value } = useMarkets();
-  const { rows, subtotal, excluded: leftOut } = sepoliaValuation(tokens, holdings, value);
+  const assets = useAssetFilter();
+  const { rows, subtotal, excluded: leftOut } = sepoliaValuation(tokens, holdings, value, assets.shows);
   const usdcDec = tokens?.usdc()?.decimals ?? 6;
   return (
     <Panel
@@ -624,6 +633,10 @@ export function Accounts({ network, relayUrl }: { network: NetworkProfile; relay
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [store, scope, account, revision],
   );
+  // The holdings, totals and Send list show only the assets the filter shows (plan 00042); what
+  // needs the customer's action (an unrecorded change coin, under Pending) shows whatever it is.
+  const assets = useAssetFilter();
+  const shownCoins = useMemo(() => coins.filter((c) => assets.showsColour(c.color)), [coins, assets]);
   const pendingJobs = useMemo(
     () => (store && scope ? listJobs(store, scope) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -751,7 +764,7 @@ export function Accounts({ network, relayUrl }: { network: NetworkProfile; relay
         </Notice>
       )}
 
-      <SummaryFigures tokens={tokens} holdings={sepolia.holdings} coins={coins} hasAccount={!!account} />
+      <SummaryFigures tokens={tokens} holdings={sepolia.holdings} coins={shownCoins} hasAccount={!!account} />
 
       <div className="accounts-grid">
         <div className="area-stmt stack-gap">
@@ -770,7 +783,8 @@ export function Accounts({ network, relayUrl }: { network: NetworkProfile; relay
               meta={
                 <>
                   <span>
-                    {coins.filter((c) => !c.spent).length} coin{coins.filter((c) => !c.spent).length === 1 ? '' : 's'}
+                    {shownCoins.filter((c) => !c.spent).length} coin
+                    {shownCoins.filter((c) => !c.spent).length === 1 ? '' : 's'}
                   </span>
                   <Button
                     variant="secondary"
@@ -791,7 +805,7 @@ export function Accounts({ network, relayUrl }: { network: NetworkProfile; relay
                 </Notice>
               )}
               <div data-testid="account" data-account={account.address}>
-                <PassportHoldings coins={coins} tokens={tokens} />
+                <PassportHoldings coins={shownCoins} tokens={tokens} />
                 <p className="table-note">
                   One payment can use only one coin, so the largest single payment can be less than the balance. A stock
                   with no live bid is shown but not valued.
@@ -805,7 +819,7 @@ export function Accounts({ network, relayUrl }: { network: NetworkProfile; relay
                   <span className="xsmall muted">Key: your wallet {short(account.device, 6, 4)}</span>
                 </p>
                 <SendForm
-                  coins={coins}
+                  coins={shownCoins}
                   tokens={tokens}
                   network={network.name}
                   onSend={(c, a, r) => void send(c, a, r)}

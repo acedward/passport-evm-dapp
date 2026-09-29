@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import type { NetworkProfile } from '@mnbank/core';
 
+import { AssetFilterNote, AssetFilterProvider } from './assets/AssetFilterContext.js';
 import { TransfersProvider } from './bridge/TransfersContext.js';
 import { loadSiteConfig, type SiteConfig } from './config.js';
 import {
@@ -223,6 +224,7 @@ function Shell({ network, config }: { network: NetworkProfile; config: SiteConfi
           </Notice>
         )}
         <BankNotices place="shell" />
+        <AssetFilterNote />
       </div>
       <main className="wrap">
         {section === 'local' ? (
@@ -275,9 +277,11 @@ export function App() {
       <WalletProvider network={config.network}>
         <BankStatusProvider relayUrl={config.relayUrl}>
           <MarketProvider network={config.network} tokens={config.tokens}>
-            <TransfersProvider network={config.network} relayUrl={config.relayUrl}>
-              <Shell network={config.network} config={config} />
-            </TransfersProvider>
+            <AssetFilterProvider>
+              <TransfersProvider network={config.network} relayUrl={config.relayUrl}>
+                <Shell network={config.network} config={config} />
+              </TransfersProvider>
+            </AssetFilterProvider>
           </MarketProvider>
         </BankStatusProvider>
       </WalletProvider>
