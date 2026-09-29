@@ -112,12 +112,13 @@ test('?assets=stkA,USDC: only those assets and their market, in every view; a re
   expect(ex.external).toEqual([]);
 });
 
-test('?assets=USDC (the partner view without its token yet): USDC only, and no market', async ({ page }) => {
+test('?assets=USDC,TBILL on the stk site: USDC only, no market, and TBILL is not on this site', async ({ page }) => {
   await serveExchange(page);
   await installCustomer(page, { withAccount: true, withTransfers: true, withTrades: true });
   await page.goto('/?assets=USDC,TBILL#accounts');
   await expect(page.getByTestId('asset-filter-note')).toHaveText(
-    'Showing only USDC. Not on this site yet: TBILL. Show all assets',
+    // TBILL is a bank token since plan 00046, outside this site's set (the stagenet default).
+    'Showing only USDC. Not available on this site: TBILL. Show all assets',
   );
   await connect(page);
   await expect(page.locator('[data-testid=passport-row]')).toHaveCount(1);
@@ -166,9 +167,10 @@ test('a token from the config (a fake TBILL): ?assets=USDC,TBILL shows only TBIL
 test('an unknown list shows everything; ?assets=all, Show all assets and CLEAR ALL clear it', async ({ page }) => {
   await serveExchange(page);
   // Nothing known: everything shows, and the note says why.
-  await page.goto('/?assets=TBILL#markets');
+  await page.goto('/?assets=TBILL,EURC#markets');
   await expect(page.getByTestId('asset-filter-note')).toContainText(
-    'None of the listed assets is on this site, so every asset is shown. Not on this site yet: TBILL.',
+    'None of the listed assets is on this site, so every asset is shown. Not available on this site: TBILL. ' +
+      'Not on this site yet: EURC.',
   );
   await expect(page.locator('[data-testid=market-row]')).toHaveCount(3);
 

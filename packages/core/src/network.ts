@@ -133,6 +133,15 @@ export const UNDEPLOYED: NetworkProfile = {
 
 export const PROFILES: Readonly<Record<NetworkName, NetworkProfile>> = { stagenet: STAGENET, undeployed: UNDEPLOYED };
 
+/** Each network's default asset set (plan 00046): the symbols a site shows when its
+ *  `config.json` names no `assets` of its own. This is DATA beside the profiles, never a rule in
+ *  code: no symbol here is special, and a new token shows once it is listed here or in a site's
+ *  `assets`. `null` shows every token of the registry (the local stack). */
+export const NETWORK_DEFAULT_ASSETS: Readonly<Record<NetworkName, readonly string[] | null>> = {
+  stagenet: ['USDC', 'stkA', 'stkB', 'stkC'],
+  undeployed: null,
+};
+
 /** A partial profile: any subset of fields, nested. */
 export type NetworkOverrides = {
   [K in keyof Omit<NetworkProfile, 'name'>]?: NetworkProfile[K] extends object

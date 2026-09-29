@@ -277,7 +277,7 @@ export function App() {
       <WalletProvider network={config.network}>
         <BankStatusProvider relayUrl={config.relayUrl}>
           <MarketProvider network={config.network} tokens={config.tokens}>
-            <AssetFilterProvider>
+            <AssetFilterProvider site={config.assets}>
               <TransfersProvider network={config.network} relayUrl={config.relayUrl}>
                 <Shell network={config.network} config={config} />
               </TransfersProvider>
