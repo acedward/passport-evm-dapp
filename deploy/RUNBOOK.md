@@ -755,14 +755,16 @@ One web image and one relay can serve several domains, each with its own asset s
 | Domain | Asset set | `WEB_ASSETS` (or `config.json` `assets`) |
 |---|---|---|
 | The bank domain | USDC, stkA, stkB, stkC: the stagenet default | empty (no `assets`) |
-| `https://stagenet.tbank.zkdojo.com/` | USDC and the T-bills | `USDC,TBILL,TB13W,TB26W,TB52W` |
+| `https://stagenet.tbank.zkdojo.com/` | USDC, TB13W, TB26W, TB52W | `USDC,TB13W,TB26W,TB52W` |
+
+TBILL stays one of the bank's tokens (the relay still bridges it); the tbank set leaves it out.
 
 What changes between the two is only the `config.json` each serves. The web container writes it
 from `WEB_ASSETS` (comma-separated symbols, or `all`), or serves a mounted
 `/etc/mnbank/config.json` as is. For the tbank domain it is:
 
 ```json
-{"network":"stagenet","relayUrl":"/relay","assets":["USDC","TBILL","TB13W","TB26W","TB52W"]}
+{"network":"stagenet","relayUrl":"/relay","assets":["USDC","TB13W","TB26W","TB52W"]}
 ```
 
 A second web service, on the same image and in front of the same relay, as a Compose override
@@ -775,7 +777,7 @@ services:
       file: compose.yml
       service: web
     environment:
-      WEB_ASSETS: USDC,TBILL,TB13W,TB26W,TB52W
+      WEB_ASSETS: USDC,TB13W,TB26W,TB52W
     ports: !override
       - ${WEB_BIND_ADDRESS:-127.0.0.1}:${WEB_TBANK_HOST_PORT:-18082}:8080
 ```
@@ -804,7 +806,7 @@ Things to know:
 - **Each domain's customers are separate.** Browser storage is per origin: accounts, records and
   the `?assets=` filter of one domain are not seen on the other. A customer moves an account with
   Export and Import.
-- **`?assets=` only narrows.** On the tbank domain, `?assets=USDC,TBILL` shows only TBILL/USDC;
+- **`?assets=` only narrows.** On the tbank domain, `?assets=USDC,TB13W` shows only TB13W/USDC;
   `?assets=stkA,USDC` shows USDC and names stkA as "not available on this site"; `?assets=all`
   goes back to the domain's set.
 - **A typo in `WEB_ASSETS`** (a symbol the bank does not have) is ignored, with a warning in the

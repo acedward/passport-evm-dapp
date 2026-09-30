@@ -19,7 +19,10 @@ const root = fileURLToPath(new URL('../..', import.meta.url));
 const OUT = process.env.SITE_ASSETS_OUT_DIR ?? `${root}/test-results/site-assets`;
 mkdirSync(OUT, { recursive: true });
 
-/** The T-bills domain's config.json (web/README.md, RUNBOOK section 16). */
+/**
+ * A T-bills domain's config.json with every T-bill, TBILL included, so the checks cover all four. The documented
+ * tbank set (web/README.md, RUNBOOK section 16) is the same without TBILL, which stays one of the bank's tokens.
+ */
 const TBANK = { network: 'stagenet', relayUrl: '', assets: ['USDC', 'TBILL', 'TB13W', 'TB26W', 'TB52W'] };
 /** Any stk token's name, in either form (stkA, wStkB, …). */
 const STK = /\bw?stk[abc]\b/i;

@@ -11,7 +11,7 @@
 #   WEB_DNS_RESOLVER             DNS for the relay's name (default 127.0.0.11, Docker's)
 #   WEB_CONTENT_SECURITY_POLICY  optional Content-Security-Policy header value
 #   WEB_ASSETS                   this site's asset set: comma-separated symbols (for example
-#                                USDC,TBILL,TB13W,TB26W,TB52W), or "all"; empty: the network's
+#                                USDC,TB13W,TB26W,TB52W), or "all"; empty: the network's
 #                                default set (stagenet: USDC, stkA, stkB, stkC). Written into
 #                                config.json as "assets"; one image serves every domain
 #
