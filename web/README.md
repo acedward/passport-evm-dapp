@@ -11,7 +11,7 @@ and its optional `assets` is that site's asset set: a list of symbols, or `"all"
 | Site | `config.json` | Shows |
 |---|---|---|
 | The bank domain | `{"network":"stagenet","relayUrl":"/relay"}` | the stagenet default set: USDC, stkA, stkB, stkC (wUSDC, wStkA/B/C on Midnight) and their three markets |
-| `https://stagenet.tbank.zkdojo.com/` | `{"network":"stagenet","relayUrl":"/relay","assets":["USDC","TBILL","TB13W","TB26W","TB52W"]}` | USDC and the four T-bills, and their four markets |
+| `https://stagenet.tbank.zkdojo.com/` | `{"network":"stagenet","relayUrl":"/relay","assets":["USDC","TB13W","TB26W","TB52W"]}` | USDC, TB13W, TB26W and TB52W, and their 3 markets (TBILL stays a bank token, outside this set) |
 | Any site | `{"network":"stagenet","relayUrl":"/relay","assets":"all"}` | all 8 tokens, 7 markets |
 
 - Without `assets`, a site shows its network's default set: data beside the network profiles
@@ -32,7 +32,7 @@ and its optional `assets` is that site's asset set: a list of symbols, or `"all"
 
 ## Showing only some assets (`?assets=`)
 
-A link such as `https://<bank>/?assets=USDC,TBILL` keeps that list in the browser's local data
+A link such as `https://<bank>/?assets=USDC,TB13W` keeps that list in the browser's local data
 (`mn-bank/v1/_global/settings/asset-filter`) and removes the parameter from the address bar; from
 then on the site shows only those assets, everywhere tokens appear. The list only narrows within
 the site's set: `?assets=all` goes back to the site's whole set, and a bank token outside it is

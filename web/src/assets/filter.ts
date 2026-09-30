@@ -1,5 +1,5 @@
 // The asset filter (plan 00042): an opt-in whitelist, set by the page's URL, of the assets the
-// site shows. `https://<bank>/?assets=USDC,TBILL` keeps the list in this browser's local data and
+// site shows. `https://<bank>/?assets=USDC,TB13W` keeps the list in this browser's local data and
 // shows only those assets, everywhere tokens appear; with no list, the site's whole set is shown.
 //
 // The site's set (plan 00046) is the ceiling: each domain serves one build with its own
